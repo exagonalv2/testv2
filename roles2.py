@@ -1679,21 +1679,511 @@ async def listar_roles(ctx):
         embed = discord.Embed(title=f"🎭 Roles ({i}/{len(paginas)})", description=p, color=discord.Color.red())
         await ctx.send(embed=embed)
 
-@bot.command(name="anuncio", aliases=["ann"])
+# ═══════════════════════════════════════════════════════════════
+#  📢 SISTEMA DE ECHO / ANUNCIOS — Exagon Bot
+# ═══════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────
+#  HELPER — construir embed de anuncio reutilizable
+# ───────────────────────────────────────────────────────────────
+def _build_anuncio_embed(
+    titulo: str,
+    mensaje: str,
+    color: int = 0xFF0000,
+    autor: discord.Member = None,
+    imagen_url: str = None,
+    thumbnail_url: str = None,
+    footer_extra: str = None,
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=titulo,
+        description=mensaje,
+        color=color,
+        timestamp=datetime.now(timezone.utc)
+    )
+    if autor:
+        embed.set_author(name=autor.display_name, icon_url=autor.display_avatar.url)
+    if imagen_url:
+        embed.set_image(url=imagen_url)
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    if footer_extra:
+        embed.set_footer(text=footer_extra)
+    return embed
+
+
+# ───────────────────────────────────────────────────────────────
+#  !echo / /echo  —  El bot repite un mensaje (sin embed)
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="echo", aliases=["say", "repeat"])
+@commands.check(es_admin)
+async def echo(ctx, canal: discord.TextChannel = None, *, mensaje: str):
+    """El bot envía el mensaje indicado en el canal (sin embed).
+    Uso: !echo [#canal] <mensaje>
+    """
+    destino = canal or ctx.channel
+    try:
+        await ctx.message.delete()
+    except discord.Forbidden:
+        pass
+    await destino.send(mensaje)
+    if destino != ctx.channel:
+        await ctx.send(f"✅ Mensaje enviado en {destino.mention}.", delete_after=5)
+
+@bot.tree.command(name="echo", description="📣 El bot repite un mensaje en el canal indicado")
+@app_commands.describe(
+    canal="Canal destino (opcional, por defecto el actual)",
+    mensaje="Texto que enviará el bot"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def echo_slash(
+    interaction: discord.Interaction,
+    mensaje: str,
+    canal: discord.TextChannel = None
+):
+    destino = canal or interaction.channel
+    await destino.send(mensaje)
+    await interaction.response.send_message(
+        f"✅ Mensaje enviado en {destino.mention}.", ephemeral=True
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+#  !anuncio / /anuncio  —  Anuncio con @everyone y embed rojo
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="anuncio", aliases=["ann", "announce"])
 @commands.check(es_admin)
 async def anuncio(ctx, canal: discord.TextChannel = None, *, mensaje: str):
-    canal = canal or ctx.channel
-    embed = discord.Embed(title="📢 Anuncio", description=mensaje, color=discord.Color.red(), timestamp=datetime.now(timezone.utc))
-    await canal.send("@everyone", embed=embed)
-    if canal != ctx.channel: await ctx.send(f"✅ Anuncio en {canal.mention}.")
+    """Envía un anuncio con @everyone y embed.
+    Uso: !ann [#canal] <mensaje>
+    """
+    destino = canal or ctx.channel
+    embed = _build_anuncio_embed(
+        titulo="📢 Anuncio",
+        mensaje=mensaje,
+        color=0xFF0000,
+        autor=ctx.author
+    )
+    await destino.send("@everyone", embed=embed)
+    if destino != ctx.channel:
+        await ctx.send(f"✅ Anuncio enviado en {destino.mention}.")
 
-@bot.command(name="embed_msg", aliases=["emb"])
+@bot.tree.command(name="anuncio", description="📢 Envía un anuncio con @everyone en el canal indicado")
+@app_commands.describe(
+    canal="Canal destino",
+    mensaje="Texto del anuncio"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def anuncio_slash(
+    interaction: discord.Interaction,
+    mensaje: str,
+    canal: discord.TextChannel = None
+):
+    destino = canal or interaction.channel
+    embed = _build_anuncio_embed(
+        titulo="📢 Anuncio",
+        mensaje=mensaje,
+        color=0xFF0000,
+        autor=interaction.user
+    )
+    await destino.send("@everyone", embed=embed)
+    await interaction.response.send_message(
+        f"✅ Anuncio enviado en {destino.mention}.", ephemeral=True
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+#  !emb / /emb  —  Embed personalizado con título y color
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="embed_msg", aliases=["emb", "embed"])
 @commands.check(es_admin)
-async def embed_msg(ctx, canal: discord.TextChannel = None, titulo: str = "Mensaje", *, mensaje: str):
-    canal = canal or ctx.channel
-    embed = discord.Embed(title=titulo, description=mensaje, color=discord.Color.red(), timestamp=datetime.now(timezone.utc))
-    await canal.send(embed=embed)
-    if canal != ctx.channel: await ctx.send(f"✅ Embed en {canal.mention}.")
+async def embed_msg(
+    ctx,
+    canal: discord.TextChannel = None,
+    titulo: str = "📌 Mensaje",
+    color_hex: str = "FF0000",
+    *,
+    mensaje: str
+):
+    """Envía un embed con título y color personalizados.
+    Uso: !emb [#canal] "Título" [ColorHex] <mensaje>
+    Ejemplo: !emb #general "Reglas" 00FF00 Aquí van las reglas.
+    """
+    destino = canal or ctx.channel
+    try:
+        color = int(color_hex.strip("#"), 16)
+    except ValueError:
+        color = 0xFF0000
+    embed = _build_anuncio_embed(
+        titulo=titulo,
+        mensaje=mensaje,
+        color=color,
+        autor=ctx.author
+    )
+    await destino.send(embed=embed)
+    if destino != ctx.channel:
+        await ctx.send(f"✅ Embed enviado en {destino.mention}.")
+
+@bot.tree.command(name="embed", description="📌 Envía un embed personalizado con título y color")
+@app_commands.describe(
+    titulo="Título del embed",
+    mensaje="Contenido del embed",
+    color="Color en HEX sin # (ej: FF0000 para rojo)",
+    canal="Canal destino (opcional)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def embed_slash(
+    interaction: discord.Interaction,
+    titulo: str,
+    mensaje: str,
+    color: str = "FF0000",
+    canal: discord.TextChannel = None
+):
+    destino = canal or interaction.channel
+    try:
+        color_int = int(color.strip("#"), 16)
+    except ValueError:
+        color_int = 0xFF0000
+    embed = _build_anuncio_embed(
+        titulo=titulo,
+        mensaje=mensaje,
+        color=color_int,
+        autor=interaction.user
+    )
+    await destino.send(embed=embed)
+    await interaction.response.send_message(
+        f"✅ Embed enviado en {destino.mention}.", ephemeral=True
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+#  !dm / /dm  —  Enviar DM privado a un usuario
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="dm", aliases=["privado", "mensaje_privado"])
+@commands.check(es_admin)
+async def dm_cmd(ctx, member: discord.Member, *, mensaje: str):
+    """Envía un DM a un usuario desde el bot.
+    Uso: !dm @usuario <mensaje>
+    """
+    embed = discord.Embed(
+        title=f"📩 Mensaje privado de {ctx.guild.name}",
+        description=mensaje,
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.set_footer(text=f"Enviado por {ctx.author}")
+    try:
+        await member.send(embed=embed)
+        await ctx.send(f"✅ DM enviado a {member.mention}.")
+    except discord.Forbidden:
+        await ctx.send(f"❌ No pude enviar DM a {member.mention} (tiene los DMs cerrados).")
+
+@bot.tree.command(name="dm", description="📩 Envía un mensaje privado a un usuario")
+@app_commands.describe(
+    usuario="Usuario que recibirá el DM",
+    mensaje="Contenido del DM"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def dm_slash(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    mensaje: str
+):
+    embed = discord.Embed(
+        title=f"📩 Mensaje privado de {interaction.guild.name}",
+        description=mensaje,
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.set_footer(text=f"Enviado por {interaction.user}")
+    try:
+        await usuario.send(embed=embed)
+        await interaction.response.send_message(
+            f"✅ DM enviado a {usuario.mention}.", ephemeral=True
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ No pude enviar DM a {usuario.mention} (DMs cerrados).", ephemeral=True
+        )
+
+
+# ───────────────────────────────────────────────────────────────
+#  !dmrole / /dmrole  —  DM masivo a todos los usuarios con un rol
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="dmrole", aliases=["massdm"])
+@commands.check(es_admin)
+async def dmrole(ctx, rol: discord.Role, *, mensaje: str):
+    """Envía un DM a todos los miembros con un rol específico.
+    Uso: !dmrole @Rol <mensaje>
+    ⚠️ Úsalo con moderación para no ser marcado como spam.
+    """
+    miembros = [m for m in rol.members if not m.bot]
+    if not miembros:
+        return await ctx.send(f"❌ El rol {rol.mention} no tiene miembros (sin contar bots).")
+
+    embed_prog = discord.Embed(
+        title="⏳ Enviando DMs...",
+        description=f"0/{len(miembros)} enviados",
+        color=0xFF0000
+    )
+    msg = await ctx.send(embed=embed_prog)
+
+    enviados, fallidos = 0, 0
+    for member in miembros:
+        dm_embed = discord.Embed(
+            title=f"📩 Mensaje de {ctx.guild.name}",
+            description=mensaje,
+            color=0xFF0000,
+            timestamp=datetime.now(timezone.utc)
+        )
+        dm_embed.set_footer(text=f"Enviado a miembros de: @{rol.name}")
+        try:
+            await member.send(embed=dm_embed)
+            enviados += 1
+        except discord.Forbidden:
+            fallidos += 1
+        await asyncio.sleep(1)   # Anti rate-limit
+
+        if (enviados + fallidos) % 5 == 0:
+            embed_prog.description = f"{enviados + fallidos}/{len(miembros)} enviados"
+            await msg.edit(embed=embed_prog)
+
+    embed_final = discord.Embed(title="✅ DMs Completados", color=0xFF0000)
+    embed_final.add_field(name="✅ Enviados", value=str(enviados), inline=True)
+    embed_final.add_field(name="❌ Fallidos", value=str(fallidos), inline=True)
+    embed_final.add_field(name="👥 Rol",      value=rol.mention,  inline=True)
+    await msg.edit(embed=embed_final)
+
+@bot.tree.command(name="dmrole", description="📨 Envía un DM a todos los miembros con un rol")
+@app_commands.describe(
+    rol="Rol cuyos miembros recibirán el DM",
+    mensaje="Mensaje a enviar"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def dmrole_slash(interaction: discord.Interaction, rol: discord.Role, mensaje: str):
+    await interaction.response.send_message(
+        f"⏳ Enviando DMs a miembros de {rol.mention}...", ephemeral=True
+    )
+    miembros = [m for m in rol.members if not m.bot]
+    enviados, fallidos = 0, 0
+    for member in miembros:
+        dm_embed = discord.Embed(
+            title=f"📩 Mensaje de {interaction.guild.name}",
+            description=mensaje,
+            color=0xFF0000,
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await member.send(embed=dm_embed)
+            enviados += 1
+        except discord.Forbidden:
+            fallidos += 1
+        await asyncio.sleep(1)
+    await interaction.followup.send(
+        f"✅ DMs enviados — ✅ {enviados} éxito · ❌ {fallidos} fallidos", ephemeral=True
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+#  !pin / !unpin  —  Pinear y despinear mensajes
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="pin")
+@commands.check(es_staff)
+async def pin_cmd(ctx, message_id: int = None):
+    """Pinea el mensaje indicado (o el último si no se da ID).
+    Uso: !pin [ID_del_mensaje]
+    """
+    try:
+        if message_id:
+            msg = await ctx.channel.fetch_message(message_id)
+        else:
+            msgs = [m async for m in ctx.channel.history(limit=2)]
+            msg = msgs[1] if len(msgs) > 1 else msgs[0]
+        await msg.pin()
+        await ctx.send(f"📌 Mensaje pineado por {ctx.author.mention}.", delete_after=5)
+    except discord.NotFound:
+        await ctx.send("❌ No encontré ese mensaje.")
+    except discord.Forbidden:
+        await ctx.send("❌ No tengo permisos para pinear.")
+
+@bot.command(name="unpin", aliases=["despin"])
+@commands.check(es_staff)
+async def unpin_cmd(ctx, message_id: int):
+    """Despinea un mensaje por su ID.
+    Uso: !unpin <ID_del_mensaje>
+    """
+    try:
+        msg = await ctx.channel.fetch_message(message_id)
+        await msg.unpin()
+        await ctx.send(f"📌 Mensaje despineado por {ctx.author.mention}.", delete_after=5)
+    except discord.NotFound:
+        await ctx.send("❌ No encontré ese mensaje.")
+    except discord.Forbidden:
+        await ctx.send("❌ No tengo permisos para despin.")
+
+@bot.tree.command(name="pin", description="📌 Pinea un mensaje por su ID")
+@app_commands.describe(message_id="ID del mensaje a pinear")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def pin_slash(interaction: discord.Interaction, message_id: str):
+    try:
+        msg = await interaction.channel.fetch_message(int(message_id))
+        await msg.pin()
+        await interaction.response.send_message("📌 Mensaje pineado.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+@bot.tree.command(name="unpin", description="📌 Despinea un mensaje por su ID")
+@app_commands.describe(message_id="ID del mensaje a despin")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def unpin_slash(interaction: discord.Interaction, message_id: str):
+    try:
+        msg = await interaction.channel.fetch_message(int(message_id))
+        await msg.unpin()
+        await interaction.response.send_message("📌 Mensaje despineado.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+
+# ───────────────────────────────────────────────────────────────
+#  !editembed / /editembed  —  Editar un embed ya enviado por el bot
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="editembed", aliases=["editemb", "editarEmbed"])
+@commands.check(es_admin)
+async def editembed(ctx, message_id: int, *, nuevo_contenido: str):
+    """Edita el contenido de un embed enviado por el bot.
+    Uso: !editembed <ID_mensaje> <nuevo texto>
+    """
+    try:
+        msg = await ctx.channel.fetch_message(message_id)
+        if msg.author != bot.user:
+            return await ctx.send("❌ Ese mensaje no es mío.")
+        if not msg.embeds:
+            return await ctx.send("❌ Ese mensaje no tiene embeds.")
+        embed = msg.embeds[0]
+        embed.description = nuevo_contenido
+        embed.timestamp = datetime.now(timezone.utc)
+        await msg.edit(embed=embed)
+        await ctx.send("✅ Embed editado.", delete_after=5)
+    except discord.NotFound:
+        await ctx.send("❌ Mensaje no encontrado.")
+
+@bot.tree.command(name="editembed", description="✏️ Edita el texto de un embed enviado por el bot")
+@app_commands.describe(
+    message_id="ID del mensaje con el embed",
+    nuevo_contenido="Nuevo texto para el embed"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def editembed_slash(interaction: discord.Interaction, message_id: str, nuevo_contenido: str):
+    try:
+        msg = await interaction.channel.fetch_message(int(message_id))
+        if msg.author != bot.user or not msg.embeds:
+            return await interaction.response.send_message("❌ No es un embed mío.", ephemeral=True)
+        embed = msg.embeds[0]
+        embed.description = nuevo_contenido
+        embed.timestamp = datetime.now(timezone.utc)
+        await msg.edit(embed=embed)
+        await interaction.response.send_message("✅ Embed actualizado.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+
+# ───────────────────────────────────────────────────────────────
+#  !reglas / /reglas  —  Publicar embed de reglas del servidor
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="reglas", aliases=["rules"])
+@commands.check(es_admin)
+async def reglas(ctx, canal: discord.TextChannel = None):
+    """Envía el embed de reglas del servidor.
+    Uso: !reglas [#canal]
+    """
+    destino = canal or ctx.channel
+    embed = discord.Embed(
+        title="📜 Reglas del Servidor",
+        description=(
+            "Por favor lee y respeta las siguientes reglas para mantener el orden de la comunidad."
+        ),
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="1️⃣ Respeto",
+        value="Traten a todos con respeto. No se tolerará el acoso ni el bullying.", inline=False)
+    embed.add_field(name="2️⃣ Sin Spam",
+        value="No envíes mensajes repetidos ni inunden los canales.", inline=False)
+    embed.add_field(name="3️⃣ Sin NSFW",
+        value="Contenido explícito solo en canales autorizados.", inline=False)
+    embed.add_field(name="4️⃣ Sin Publicidad",
+        value="No promociones otros servidores o productos sin autorización.", inline=False)
+    embed.add_field(name="5️⃣ Sigue la TOS de Discord",
+        value="Respeta los [Términos de Servicio](https://discord.com/terms) de Discord.", inline=False)
+    embed.set_footer(text=f"{ctx.guild.name} • Al unirte aceptas estas reglas")
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    await destino.send(embed=embed)
+    if destino != ctx.channel:
+        await ctx.send(f"✅ Reglas enviadas en {destino.mention}.")
+
+@bot.tree.command(name="reglas", description="📜 Publica el embed de reglas del servidor")
+@app_commands.describe(canal="Canal donde publicar las reglas")
+@app_commands.checks.has_permissions(administrator=True)
+async def reglas_slash(interaction: discord.Interaction, canal: discord.TextChannel = None):
+    destino = canal or interaction.channel
+    embed = discord.Embed(
+        title="📜 Reglas del Servidor",
+        description="Por favor lee y respeta las siguientes reglas.",
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="1️⃣ Respeto",     value="Sin acoso ni bullying.",           inline=False)
+    embed.add_field(name="2️⃣ Sin Spam",    value="No mensajes repetidos.",            inline=False)
+    embed.add_field(name="3️⃣ Sin NSFW",    value="Solo en canales autorizados.",      inline=False)
+    embed.add_field(name="4️⃣ Sin Publi",   value="Sin publicidad no autorizada.",      inline=False)
+    embed.add_field(name="5️⃣ Discord TOS", value="Respeta los Términos de Discord.", inline=False)
+    embed.set_footer(text=f"{interaction.guild.name} • Al unirte aceptas estas reglas")
+    await destino.send(embed=embed)
+    await interaction.response.send_message(f"✅ Reglas enviadas en {destino.mention}.", ephemeral=True)
+
+
+# ───────────────────────────────────────────────────────────────
+#  !bienvenida / /bienvenida  —  Enviar embed de bienvenida manual
+# ───────────────────────────────────────────────────────────────
+@bot.command(name="bienvenida", aliases=["welcome"])
+@commands.check(es_staff)
+async def bienvenida(ctx, member: discord.Member = None):
+    """Da la bienvenida manual a un usuario con un embed.
+    Uso: !bienvenida [@usuario]
+    """
+    member = member or ctx.author
+    embed = discord.Embed(
+        title=f"👋 ¡Bienvenido/a, {member.display_name}!",
+        description=(
+            f"Hola {member.mention}, ¡nos alegra tenerte en **{ctx.guild.name}**!\n\n"
+            f"📜 Lee las reglas antes de participar.\n"
+            f"🎭 Asigna tus roles en el canal correspondiente."
+        ),
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Miembro #{ctx.guild.member_count}")
+    await ctx.send(embed=embed)
+
+@bot.tree.command(name="bienvenida", description="👋 Envía un embed de bienvenida a un usuario")
+@app_commands.describe(usuario="Usuario a dar la bienvenida (opcional)")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def bienvenida_slash(interaction: discord.Interaction, usuario: discord.Member = None):
+    member = usuario or interaction.user
+    embed = discord.Embed(
+        title=f"👋 ¡Bienvenido/a, {member.display_name}!",
+        description=(
+            f"Hola {member.mention}, ¡nos alegra tenerte en **{interaction.guild.name}**!\n\n"
+            f"📜 Lee las reglas antes de participar.\n"
+            f"🎭 Asigna tus roles en el canal correspondiente."
+        ),
+        color=0xFF0000,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Miembro #{interaction.guild.member_count}")
+    await interaction.response.send_message(embed=embed)
 
 
 # ═════════════════════════════════════════════════════════════
@@ -3226,4 +3716,3 @@ if __name__ == "__main__":
             log.error(f"Error:\n{traceback.format_exc()}")
             log.info("Reiniciando en 5s...")
             time.sleep(5)
-
