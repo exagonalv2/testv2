@@ -77,29 +77,94 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ═══════════════════════════════════════════════════════════════
-#  PATCH GLOBAL — "by Exagonal" en TODOS los embeds automático
-#  Se inyecta ANTES de crear el bot, afecta cada embed.send()
+#  MARCA DE AGUA — "by Exagonal" blindada en 3 capas
+#
+#  CAPA 1 → discord.Embed.to_dict()
+#           Se ejecuta justo antes de serializar el embed para
+#           enviarlo a la API. Es el último punto posible, por
+#           lo que ningún código posterior puede quitarla.
+#
+#  CAPA 2 → discord.Embed.set_footer()
+#           Si alguien llama a set_footer() explícitamente,
+#           la marca se reinyecta de todas formas.
+#
+#  CAPA 3 → discord.abc.Messageable.send()
+#           Revisión previa al envío como respaldo adicional.
+#
+#  Las referencias originales se guardan con nombres ofuscados
+#  para dificultar que otro código las restaure.
 # ═══════════════════════════════════════════════════════════════
-_original_send = discord.abc.Messageable.send
 
-@functools.wraps(_original_send)
-async def _patched_send(self, content=None, **kwargs):
+_MARCA = "by Exagonal"
+
+def _forzar_marca(embed: discord.Embed) -> None:
+    """Inyecta la marca en el footer del embed si no está presente."""
+    footer = embed.footer
+    if not footer or not footer.text:
+        # Llamada directa al método original guardado para evitar recursión
+        _Embed_set_footer_orig(embed, text=_MARCA)
+    elif _MARCA not in footer.text:
+        nuevo = footer.text + f" | {_MARCA}"
+        if footer.icon_url:
+            _Embed_set_footer_orig(embed, text=nuevo, icon_url=footer.icon_url)
+        else:
+            _Embed_set_footer_orig(embed, text=nuevo)
+
+
+# ── CAPA 2: patch de set_footer ──────────────────────────────
+_Embed_set_footer_orig = discord.Embed.set_footer
+
+def _Embed_set_footer_patched(self, *, text=discord.utils.MISSING, icon_url=discord.utils.MISSING):
+    # Llama al original primero
+    result = _Embed_set_footer_orig(self, text=text, icon_url=icon_url)
+    # Luego garantiza que la marca esté presente
+    footer = self.footer
+    if footer and footer.text and _MARCA not in footer.text:
+        _Embed_set_footer_orig(
+            self,
+            text=footer.text + f" | {_MARCA}",
+            icon_url=footer.icon_url if footer.icon_url else discord.utils.MISSING
+        )
+    elif not footer or not footer.text:
+        _Embed_set_footer_orig(self, text=_MARCA)
+    return result
+
+discord.Embed.set_footer = _Embed_set_footer_patched
+
+
+# ── CAPA 1: patch de to_dict (última línea de defensa) ───────
+_Embed_to_dict_orig = discord.Embed.to_dict
+
+def _Embed_to_dict_patched(self):
+    # Fuerza la marca usando el método original (sin recursión)
+    footer = self.footer
+    if not footer or not footer.text:
+        _Embed_set_footer_orig(self, text=_MARCA)
+    elif _MARCA not in footer.text:
+        nuevo = footer.text + f" | {_MARCA}"
+        if footer.icon_url:
+            _Embed_set_footer_orig(self, text=nuevo, icon_url=footer.icon_url)
+        else:
+            _Embed_set_footer_orig(self, text=nuevo)
+    return _Embed_to_dict_orig(self)
+
+discord.Embed.to_dict = _Embed_to_dict_patched
+
+
+# ── CAPA 3: patch de send (respaldo) ─────────────────────────
+_Messageable_send_orig = discord.abc.Messageable.send
+
+@functools.wraps(_Messageable_send_orig)
+async def _Messageable_send_patched(self, content=None, **kwargs):
     embed = kwargs.get("embed")
     if embed is not None:
-        footer = embed.footer
-        if not footer or not footer.text:
-            embed.set_footer(text="by Exagonal")
-        elif "by Exagonal" not in footer.text:
-            if footer.icon_url:
-                embed.set_footer(
-                    text=footer.text + " | by Exagonal",
-                    icon_url=footer.icon_url
-                )
-            else:
-                embed.set_footer(text=footer.text + " | by Exagonal")
-    return await _original_send(self, content=content, **kwargs)
+        _forzar_marca(embed)
+    # Aplica también a listas de embeds (embeds=[...])
+    for emb in kwargs.get("embeds") or []:
+        _forzar_marca(emb)
+    return await _Messageable_send_orig(self, content=content, **kwargs)
 
-discord.abc.Messageable.send = _patched_send
+discord.abc.Messageable.send = _Messageable_send_patched
 
 # ─────────────────────────────────────────────────────────────
 #  CARGAR CONFIG.JSON
