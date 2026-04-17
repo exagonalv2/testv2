@@ -1789,19 +1789,7 @@ async def limpiar_usuario(ctx, member: discord.Member, cantidad: int = 50):
     msg = await ctx.send(f"🗑️ **{len(borrados)}** mensajes de {member.mention} borrados.")
     await asyncio.sleep(3); await msg.delete()
 
-@bot.command(name="userinfo", aliases=["ui","whois"])
-async def userinfo(ctx, member: discord.Member = None):
-    member = member or ctx.author
-    roles = [r.mention for r in member.roles if r != ctx.guild.default_role]
-    embed = discord.Embed(title=f"👤 {member}", color=member.color)
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="🆔 ID",            value=member.id,                              inline=True)
-    embed.add_field(name="📅 Cuenta",         value=member.created_at.strftime("%d/%m/%Y"), inline=True)
-    embed.add_field(name="📥 Se unió",        value=member.joined_at.strftime("%d/%m/%Y"),  inline=True)
-    embed.add_field(name="🎨 Color",          value=str(member.color),                      inline=True)
-    embed.add_field(name="🤖 Bot",            value="Sí" if member.bot else "No",           inline=True)
-    embed.add_field(name="🏆 Roles",          value=" ".join(roles) if roles else "Sin roles", inline=False)
-    await ctx.send(embed=embed)
+# [userinfo reemplazado por la interfaz ZyroX — ver más abajo]
 
 @bot.command(name="serverinfo", aliases=["si","servidor"])
 async def serverinfo(ctx):
@@ -2672,89 +2660,505 @@ for _a, _i in ANIME_ACCIONES.items():
 #  📖 AYUDA
 # ═════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+#  🔴 INTERFAZ ESTILO ZYROX — Paginación + Dropdown + Userinfo
+#  Reemplaza: ayuda, _build_ayuda_embed, userinfo
+# ═══════════════════════════════════════════════════════════════
+
+# ── Páginas del menú de ayuda ─────────────────────────────────
+def _get_help_pages(p: str):
+    """Devuelve lista de embeds para el menú paginado."""
+    RED = 0xFF0000
+
+    pages = []
+
+    # ─── Página 1: Inicio ─────────────────────────────────────
+    e = discord.Embed(
+        title="🤖 Bienvenido al Panel de Ayuda",
+        description=(
+            f"**Prefijo del servidor:** `{p}`\n"
+            f"**Total de comandos:** `100+`\n\n"
+            f"Usa los botones ⬅️ ➡️ para navegar,\n"
+            f"o el menú desplegable para ir directo a una sección.\n\n"
+            f"*Escribe `{p}ayuda` para ver este menú.*"
+        ),
+        color=RED
+    )
+    e.add_field(name="🔴 Comandos Principales",
+        value="Moderación · AntiNuke · Roles · Canales · Warns", inline=True)
+    e.add_field(name="🎮 Comandos Extra",
+        value="Juegos · Fun · Anime · Roleplay · Cumpleaños", inline=True)
+    pages.append(e)
+
+    # ─── Página 2: Generales ─────────────────────────────────
+    e = discord.Embed(title="🌐 Comandos Generales", color=RED)
+    e.add_field(name="Información",
+        value=(
+            f"`{p}ping` · `{p}avatar` · `{p}banner`\n"
+            f"`{p}userinfo` · `{p}serverinfo`\n"
+            f"`{p}stats` · `{p}botinfo` · `{p}invitar`"
+        ), inline=False)
+    e.add_field(name="Utilidades",
+        value=(
+            f"`{p}clima <ciudad>` — Clima actual\n"
+            f"`{p}tr <idioma> <texto>` — Traducir\n"
+            f"`{p}calc <expr>` — Calculadora\n"
+            f"`{p}color <hex>` — Ver color\n"
+            f"`{p}buscar <texto>` — Google\n"
+            f"`{p}rng [min] [max]` — Número aleatorio\n"
+            f"`{p}recordar <tiempo> <msg>` — Recordatorio\n"
+            f"`{p}sugerencia <txt>` — Enviar sugerencia\n"
+            f"`{p}reporte @user <razón>` — Reportar"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 3: AntiNuke ───────────────────────────────────
+    e = discord.Embed(title="🛡️ Comandos AntiNuke", color=RED)
+    e.add_field(name="General",
+        value=(
+            f"`{p}antinuke` — Panel completo\n"
+            f"`{p}an_ayuda` — Lista de comandos\n"
+            f"`{p}an_activar` / `{p}an_desactivar`\n"
+            f"`{p}an_accion <ban/kick/strip>` — Acción al nuke\n"
+            f"`{p}an_limite <tipo> <n>` — Límite de acciones\n"
+            f"`{p}an_ventana <seg>` — Ventana de tiempo\n"
+            f"`{p}an_owner @user` — Asignar owner\n"
+            f"`{p}an_logs #canal` — Canal de logs"
+        ), inline=False)
+    e.add_field(name="Whitelist",
+        value=(
+            f"`{p}an_whitelist @user` — Añadir\n"
+            f"`{p}an_whitelist remove @user` — Quitar\n"
+            f"`{p}an_whitelist list` — Ver lista"
+        ), inline=False)
+    e.add_field(name="Módulos",
+        value=(
+            f"`{p}an_antiraid_on/off` — AntiRaid\n"
+            f"`{p}an_antilinks_on/off` — AntiLinks\n"
+            f"`{p}an_antispam_on/off` — AntiSpam\n"
+            f"`{p}an_antibot_on/off` — AntiBot"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 4: Moderación ────────────────────────────────
+    e = discord.Embed(title="🔒 Comandos de Moderación", color=RED,
+        description="*Requieren permiso de Administrador*")
+    e.add_field(name="Sanciones",
+        value=(
+            f"`{p}ban @u [razón]` — Banear\n"
+            f"`{p}unban <user>` — Desbanear\n"
+            f"`{p}kick @u [razón]` — Expulsar\n"
+            f"`{p}mute @u [minutos]` — Silenciar\n"
+            f"`{p}unmute @u` — Des-silenciar"
+        ), inline=True)
+    e.add_field(name="Mensajes",
+        value=(
+            f"`{p}limpiar [n]` — Purgar mensajes\n"
+            f"`{p}limpiar_bots` — Purgar bots\n"
+            f"`{p}limpiar_usuario @u` — Purgar de user"
+        ), inline=True)
+    e.add_field(name="Nicks",
+        value=(
+            f"`{p}nick @u <nuevo>` — Cambiar nick\n"
+            f"`{p}massnick <nick>` — Nick masivo"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 5: Warns ─────────────────────────────────────
+    e = discord.Embed(title="⚠️ Sistema de Warns", color=RED,
+        description="*Requieren rol de Staff o Administrador*")
+    e.add_field(name="Comandos",
+        value=(
+            f"`{p}warn @u <razón>` — Advertir\n"
+            f"`{p}warns [@u]` — Ver advertencias\n"
+            f"`{p}clearwarns @u` — Borrar todas\n"
+            f"`{p}delwarn @u <n>` — Borrar warn #n"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 6: Canales ───────────────────────────────────
+    e = discord.Embed(title="💬 Comandos de Canales", color=RED,
+        description="*Requieren permiso de Administrador*")
+    e.add_field(name="Control",
+        value=(
+            f"`{p}lock` / `{p}unlock` — Bloquear canal\n"
+            f"`{p}lockall` / `{p}unlockall` — Bloquear todos\n"
+            f"`{p}hide` / `{p}show` — Ocultar canal\n"
+            f"`{p}slowmode [seg]` — Modo lento\n"
+            f"`{p}topic <txt>` — Cambiar tema"
+        ), inline=True)
+    e.add_field(name="Gestión",
+        value=(
+            f"`{p}cc <nombre>` — Crear canal\n"
+            f"`{p}ec` — Eliminar canal\n"
+            f"`{p}rc <nombre>` — Renombrar canal\n"
+            f"`{p}clone` — Clonar canal\n"
+            f"`{p}nsfw` — Toggle NSFW"
+        ), inline=True)
+    pages.append(e)
+
+    # ─── Página 7: Roles ─────────────────────────────────────
+    e = discord.Embed(title="🎭 Comandos de Roles", color=RED,
+        description="*Requieren permiso de Administrador*")
+    e.add_field(name="Usuarios",
+        value=(
+            f"`{p}dr @u <rol>` — Dar rol\n"
+            f"`{p}qr @u <rol>` — Quitar rol\n"
+            f"`{p}ru [@u]` — Listar roles del user\n"
+            f"`{p}v @u` — Dar acceso ARN"
+        ), inline=True)
+    e.add_field(name="Gestión",
+        value=(
+            f"`{p}cr #color <nombre>` — Crear rol\n"
+            f"`{p}er <nombre>` — Eliminar rol\n"
+            f"`{p}lroles` — Listar roles"
+        ), inline=True)
+    e.add_field(name="Anuncios",
+        value=(
+            f"`{p}ann [#c] <msg>` — Anuncio\n"
+            f"`{p}emb [#c] \"titulo\" <msg>` — Embed"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 8: Juegos ────────────────────────────────────
+    e = discord.Embed(title="🎰 Comandos de Juegos", color=RED)
+    e.add_field(name="Entretenimiento",
+        value=(
+            f"`{p}trivia` — Pregunta trivia\n"
+            f"`{p}adivina [max]` — Adivina el número\n"
+            f"`{p}acertijo` — Acertijo aleatorio\n"
+            f"`{p}tor [@u]` — Verdad o Reto\n"
+            f"`{p}8ball <preg>` — Bola 8 mágica\n"
+            f"`{p}piedra` — Piedra Papel Tijera"
+        ), inline=True)
+    e.add_field(name="Azar",
+        value=(
+            f"`{p}dado [lados]` — Tirar dado\n"
+            f"`{p}dp [n] [lados]` — Dados personalizados\n"
+            f"`{p}moneda` — Cara o cruz\n"
+            f"`{p}ruleta op1 op2...` — Ruleta"
+        ), inline=True)
+    pages.append(e)
+
+    # ─── Página 9: Sorteos y Encuestas ───────────────────────
+    e = discord.Embed(title="🎁 Sorteos y Encuestas", color=RED,
+        description="*Requieren rol de Staff*")
+    e.add_field(name="Sorteos",
+        value=f"`{p}sorteo <segundos> <premio>` — Iniciar sorteo", inline=False)
+    e.add_field(name="Encuestas",
+        value=(
+            f"`{p}encuesta <preg> | op1 | op2` — Encuesta\n"
+            f"`{p}encuesta_si_no <pregunta>` — Sí / No"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 10: Roleplay ─────────────────────────────────
+    e = discord.Embed(title="🎭 Roleplay", color=RED)
+    e.add_field(name="Parejas",
+        value=(
+            f"`{p}casar @u` — Proponer matrimonio\n"
+            f"`{p}aceptar` — Aceptar propuesta\n"
+            f"`{p}rechazar` — Rechazar propuesta\n"
+            f"`{p}divorcio` — Divorciarse\n"
+            f"`{p}pareja` — Ver tu pareja"
+        ), inline=True)
+    e.add_field(name="Familia",
+        value=(
+            f"`{p}adoptar @u` — Adoptar\n"
+            f"`{p}familia` — Ver tu familia"
+        ), inline=True)
+    pages.append(e)
+
+    # ─── Página 11: Fun ──────────────────────────────────────
+    e = discord.Embed(title="🔮 Comandos Fun", color=RED)
+    e.add_field(name="Personalidad",
+        value=(
+            f"`{p}horoscopo <signo>` — Horóscopo\n"
+            f"`{p}personalidad` — Test de personalidad\n"
+            f"`{p}compatibilidad @u` — Compatibilidad"
+        ), inline=True)
+    e.add_field(name="Entretenimiento",
+        value=(
+            f"`{p}frase` — Frase motivacional\n"
+            f"`{p}chiste` — Chiste aleatorio\n"
+            f"`{p}meme` — Meme random\n"
+            f"`{p}fp [personaje]` — Frase de personaje\n"
+            f"`{p}pl` — Frases de anime"
+        ), inline=True)
+    pages.append(e)
+
+    # ─── Página 12: Anime ────────────────────────────────────
+    e = discord.Embed(title="🐱 Comandos Anime", color=RED,
+        description="Interactúa con otros usuarios con GIFs de anime")
+    e.add_field(name="Comandos",
+        value=(
+            f"`{p}abrazar @u` · `{p}pat @u` · `{p}slap @u`\n"
+            f"`{p}kiss @u` · `{p}poke @u` · `{p}cuddle @u`\n"
+            f"`{p}bite @u` · `{p}wave @u` · `{p}dance`\n"
+            f"`{p}cry`"
+        ), inline=False)
+    pages.append(e)
+
+    # ─── Página 13: Cumpleaños y Recordatorios ───────────────
+    e = discord.Embed(title="🎂 Cumpleaños y ⏰ Recordatorios", color=RED)
+    e.add_field(name="Cumpleaños",
+        value=(
+            f"`{p}cumple [DD/MM]` — Registrar cumpleaños\n"
+            f"`{p}cumple_ver [@u]` — Ver cumpleaños\n"
+            f"`{p}cumples_lista` — Lista del servidor"
+        ), inline=False)
+    e.add_field(name="Recordatorios",
+        value=f"`{p}recordar <10m/2h/30s> <msg>` — Crear recordatorio",
+        inline=False)
+    pages.append(e)
+
+    # ─── Página 14: Config ───────────────────────────────────
+    e = discord.Embed(title="⚙️ Configuración", color=RED)
+    e.add_field(name="Bot",
+        value=f"`{p}setprefix <nuevo>` — Cambiar prefijo del servidor",
+        inline=False)
+    pages.append(e)
+
+    # Añadir numeración de página a todos los embeds
+    total = len(pages)
+    for i, page in enumerate(pages):
+        page.set_footer(text=f"📖 Página {i+1}/{total} • Usa los botones para navegar")
+
+    return pages
+
+
+# ── Vista de paginación con botones y dropdown ────────────────
+class AyudaView(discord.ui.View):
+    """Vista interactiva de ayuda paginada al estilo ZyroX."""
+
+    CATEGORIES = {
+        "main": [
+            ("🌐 Generales",        1),
+            ("🛡️ AntiNuke",         2),
+            ("🔒 Moderación",       3),
+            ("⚠️ Warns",            4),
+            ("💬 Canales",          5),
+            ("🎭 Roles",            6),
+        ],
+        "extra": [
+            ("🎰 Juegos",           7),
+            ("🎁 Sorteos",          8),
+            ("🎭 Roleplay",         9),
+            ("🔮 Fun",             10),
+            ("🐱 Anime",           11),
+            ("🎂 Cumpleaños",      12),
+            ("⚙️ Config",          13),
+        ],
+    }
+
+    def __init__(self, pages: list, author_id: int):
+        super().__init__(timeout=120)
+        self.pages    = pages
+        self.current  = 0
+        self.author   = author_id
+        self._build_select()
+
+    # ── Dropdown ──────────────────────────────────────────────
+    def _build_select(self):
+        # Dropdown Comandos Principales
+        main_select = discord.ui.Select(
+            placeholder="📋 Comandos Principales",
+            min_values=1, max_values=1, row=1,
+            options=[
+                discord.SelectOption(label=name, value=str(idx), emoji="🔴")
+                for name, idx in self.CATEGORIES["main"]
+            ]
+        )
+        main_select.callback = self._select_callback
+        self.add_item(main_select)
+
+        # Dropdown Comandos Extra
+        extra_select = discord.ui.Select(
+            placeholder="🎮 Comandos Extra",
+            min_values=1, max_values=1, row=2,
+            options=[
+                discord.SelectOption(label=name, value=str(idx), emoji="🎯")
+                for name, idx in self.CATEGORIES["extra"]
+            ]
+        )
+        extra_select.callback = self._select_callback
+        self.add_item(extra_select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message(
+                "❌ Solo el que invocó el comando puede usar esto.", ephemeral=True)
+        self.current = int(interaction.data["values"][0])
+        await interaction.response.edit_message(
+            embed=self.pages[self.current], view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return True  # dejamos pasar; cada botón valida por dentro
+
+    # ── Botones ───────────────────────────────────────────────
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.grey, row=0)
+    async def first(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message("❌ No es tu menú.", ephemeral=True)
+        self.current = 0
+        await interaction.response.edit_message(embed=self.pages[0], view=self)
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.blurple, row=0)
+    async def prev(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message("❌ No es tu menú.", ephemeral=True)
+        self.current = (self.current - 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    @discord.ui.button(emoji="🗑️", style=discord.ButtonStyle.danger, row=0)
+    async def delete(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message("❌ No es tu menú.", ephemeral=True)
+        await interaction.message.delete()
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.blurple, row=0)
+    async def next(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message("❌ No es tu menú.", ephemeral=True)
+        self.current = (self.current + 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.grey, row=0)
+    async def last(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.author:
+            return await interaction.response.send_message("❌ No es tu menú.", ephemeral=True)
+        self.current = len(self.pages) - 1
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+# ── Comando !ayuda con interfaz paginada ─────────────────────
 @bot.command(name="ayuda", aliases=["help","h","comandos"])
 async def ayuda(ctx):
-    await ctx.send(embed=_build_ayuda_embed(PREFIX))
+    pages = _get_help_pages(PREFIX)
+    view  = AyudaView(pages, ctx.author.id)
+    await ctx.send(embed=pages[0], view=view)
 
 @bot.tree.command(name="ayuda", description="📖 Muestra todos los comandos del bot")
 async def ayuda_slash(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=_build_ayuda_embed(PREFIX))
+    pages = _get_help_pages(PREFIX)
+    view  = AyudaView(pages, interaction.user.id)
+    await interaction.response.send_message(embed=pages[0], view=view)
 
-def _build_ayuda_embed(p: str) -> discord.Embed:
+
+# ── Comando !userinfo estilo ZyroX ────────────────────────────
+@bot.command(name="userinfo", aliases=["ui","whois","info"])
+async def userinfo(ctx, member: discord.Member = None):
+    member = member or ctx.author
+
+    # ── Roles (sin @everyone) ─────────────────────────────────
+    roles = [r for r in reversed(member.roles) if r != ctx.guild.default_role]
+    highest_role = roles[0] if roles else None
+    roles_mention = " ".join(r.mention for r in roles[:10]) or "Sin roles"
+    if len(roles) > 10:
+        roles_mention += f" *+{len(roles)-10} más*"
+
+    # ── Insignias ─────────────────────────────────────────────
+    badges = []
+    flags = member.public_flags
+    if flags.hypesquad_bravery:    badges.append("HypeSquad Bravery")
+    if flags.hypesquad_brilliance: badges.append("HypeSquad Brilliance")
+    if flags.hypesquad_balance:    badges.append("HypeSquad Balance")
+    if flags.early_supporter:      badges.append("Early Supporter")
+    if flags.bug_hunter:           badges.append("Bug Hunter")
+    if flags.bug_hunter_level_2:   badges.append("Bug Hunter Gold")
+    if flags.verified_bot_developer: badges.append("Bot Developer")
+    if flags.partner:              badges.append("Discord Partner")
+    if flags.staff:                badges.append("Discord Staff")
+    badges_str = " · ".join(badges) if badges else "Ninguna"
+
+    # ── Permisos clave ────────────────────────────────────────
+    PERMS_CLAVE = {
+        "administrator":       "Administrator",
+        "ban_members":         "Ban Members",
+        "kick_members":        "Kick Members",
+        "manage_guild":        "Manage Server",
+        "manage_messages":     "Manage Messages",
+        "manage_roles":        "Manage Roles",
+        "manage_channels":     "Manage Channels",
+        "manage_nicknames":    "Manage Nicknames",
+        "manage_webhooks":     "Manage Webhooks",
+        "manage_emojis":       "Manage Emojis",
+        "mention_everyone":    "Mention Everyone",
+        "moderate_members":    "Moderate Members",
+    }
+    perms = member.guild_permissions
+    active_perms = [label for attr, label in PERMS_CLAVE.items() if getattr(perms, attr, False)]
+    perms_str = " , ".join(active_perms) if active_perms else "Ninguno"
+
+    # ── Reconocimiento ────────────────────────────────────────
+    if member.id == ctx.guild.owner_id:
+        ack = "Server Owner"
+    elif perms.administrator:
+        ack = "Server Admin"
+    elif perms.manage_guild:
+        ack = "Server Manager"
+    elif perms.manage_messages:
+        ack = "Server Moderator"
+    else:
+        ack = "Server Member"
+
+    # ── Voz y Boost ───────────────────────────────────────────
+    voz      = member.voice.channel.mention if member.voice else "None"
+    boosting = f"Since {member.premium_since.strftime('%d/%m/%Y')}" if member.premium_since else "None"
+
+    # ── Fechas ────────────────────────────────────────────────
+    acc_created  = member.created_at.strftime("%d/%m/%Y")
+    guild_joined = member.joined_at.strftime("%d/%m/%Y") if member.joined_at else "?"
+
+    # ── Construir embed ───────────────────────────────────────
     embed = discord.Embed(
-        title="📖 Comandos del Bot",
-        description=f"Prefijos: `{p}comando` · `/comando` — Bot multipropósito con moderación, AntiNuke, juegos y más",
-        color=0xFF0000
+        title=f"{member}'s Information",
+        color=highest_role.color if highest_role and highest_role.color.value else 0xFF0000
     )
-    embed.add_field(name="🌐 Generales",
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.add_field(name="__General Information__",
         value=(
-            f"`{p}ping` `{p}avatar` `{p}banner` `{p}userinfo` `{p}serverinfo` `{p}stats` `{p}botinfo`\n"
-            f"`{p}clima <ciudad>` `{p}tr <idioma> <texto>` `{p}calc <expr>` `{p}color <hex>`\n"
-            f"`{p}buscar <texto>` `{p}rng [min] [max]` `{p}recordar <tiempo> <msg>`\n"
-            f"`{p}sugerencia <txt>` `{p}reporte @user <razón>` `{p}invitar`"
+            f"**Name:** {member.name}\n"
+            f"**ID:** {member.id}\n"
+            f"**Nickname:** {member.nick or 'None'}\n"
+            f"**Bot?:** {'✅ Yes' if member.bot else '❌ No'}\n"
+            f"**Badges:** {badges_str}\n"
+            f"**Account Created:** {acc_created}\n"
+            f"**Server Joined:** {guild_joined}"
         ), inline=False)
-    embed.add_field(name="🛡️ AntiNuke (Owner)",
+
+    embed.add_field(name="__Role Info__",
         value=(
-            f"`{p}antinuke` — Panel completo\n"
-            f"`{p}an_ayuda` — Todos los comandos AntiNuke\n"
-            f"AntiRaid | AntiLinks | AntiSpam | AntiBot | Verificación"
+            f"**Highest Role:** {highest_role.mention if highest_role else 'None'}\n"
+            f"**Roles ({len(roles)}):** {roles_mention}\n"
+            f"**Color:** `{str(member.color)}`"
         ), inline=False)
-    embed.add_field(name="⚠️ Warns (Staff)",
-        value=f"`{p}warn @u <razón>` `{p}warns [@u]` `{p}clearwarns @u` `{p}delwarn @u <n>`",
-        inline=False)
-    embed.add_field(name="🔒 Moderación (Admin)",
+
+    embed.add_field(name="__Extra__",
         value=(
-            f"`{p}ban @u` `{p}unban <user>` `{p}kick @u` `{p}mute @u [min]` `{p}unmute @u`\n"
-            f"`{p}limpiar [n]` `{p}limpiar_bots` `{p}limpiar_usuario @u`\n"
-            f"`{p}nick @u <nuevo>` `{p}massnick <nick>`"
+            f"**Boosting:** {boosting}\n"
+            f"**Voice:** {voz}"
         ), inline=False)
-    embed.add_field(name="🔒 Canales (Admin)",
-        value=(
-            f"`{p}lock` `{p}unlock` `{p}lockall` `{p}unlockall`\n"
-            f"`{p}hide` `{p}show` `{p}slowmode [s]` `{p}topic <txt>`\n"
-            f"`{p}cc <nombre>` `{p}ec` `{p}rc <nombre>` `{p}clone` `{p}nsfw`"
-        ), inline=False)
-    embed.add_field(name="🎭 Roles (Admin)",
-        value=(
-            f"`{p}dr @u <rol>` — Dar rol (busca por nombre)\n"
-            f"`{p}qr @u <rol>` — Quitar rol\n"
-            f"`{p}cr #color <nombre>` `{p}er <nombre>` `{p}lroles`\n"
-            f"`{p}ru [@u]` `{p}ann [#c] <msg>` `{p}emb [#c] \"titulo\" <msg>`\n"
-            f"`{p}v @u` — Dar acceso /arn"
-        ), inline=False)
-    embed.add_field(name="🎰 Juegos",
-        value=(
-            f"`{p}trivia` `{p}adivina [max]` `{p}acertijo`\n"
-            f"`{p}tor [@u]` — Verdad o Reto\n"
-            f"`{p}dado [lados]` `{p}dp [n] [lados]` `{p}moneda`\n"
-            f"`{p}ruleta op1 op2...` `{p}8ball <preg>` `{p}piedra`"
-        ), inline=False)
-    embed.add_field(name="🎁 Sorteos y Encuestas (Staff)",
-        value=f"`{p}sorteo <seg> <premio>` `{p}encuesta <preg> | op1 | op2` `{p}encuesta_si_no <preg>`",
-        inline=False)
-    embed.add_field(name="🎭 Roleplay",
-        value=(
-            f"`{p}casar @u` `{p}aceptar` `{p}rechazar` `{p}divorcio` `{p}pareja`\n"
-            f"`{p}adoptar @u` `{p}familia`"
-        ), inline=False)
-    embed.add_field(name="🔮 Fun",
-        value=(
-            f"`{p}horoscopo <signo>` `{p}personalidad` `{p}compatibilidad @u`\n"
-            f"`{p}fp [personaje]` `{p}pl` — Frases anime\n"
-            f"`{p}frase` `{p}chiste` `{p}meme`"
-        ), inline=False)
-    embed.add_field(name="🐱 Anime",
-        value=f"`{p}abrazar` `{p}pat` `{p}slap` `{p}kiss` `{p}poke` `{p}cuddle` `{p}bite` `{p}wave` `{p}dance` `{p}cry`",
-        inline=False)
-    embed.add_field(name="🎂 Cumpleaños y ⏰ Recordatorios",
-        value=(
-            f"`{p}cumple [DD/MM]` `{p}cumple_ver [@u]` `{p}cumples_lista`\n"
-            f"`{p}recordar <10m/2h/30s> <msg>`"
-        ), inline=False)
-    embed.add_field(name="⚙️ Config",
-        value=f"`{p}setprefix <nuevo>` — Cambiar prefijo",
-        inline=False)
-    return embed
+
+    embed.add_field(name="__Key Permissions__",
+        value=perms_str, inline=False)
+
+    embed.add_field(name="__Acknowledgement__",
+        value=ack, inline=False)
+
+    now = datetime.now(timezone.utc).strftime("%I:%M %p")
+    embed.set_footer(
+        text=f"Requested by {ctx.author} • Today at {now}",
+        icon_url=ctx.author.display_avatar.url
+    )
+
+    await ctx.send(embed=embed)
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2822,3 +3226,4 @@ if __name__ == "__main__":
             log.error(f"Error:\n{traceback.format_exc()}")
             log.info("Reiniciando en 5s...")
             time.sleep(5)
+
