@@ -1,5 +1,6 @@
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import json
 import os
@@ -2498,12 +2499,935 @@ async def ayuda(ctx):
     view  = AyudaView(pages, ctx.author.id)
     await ctx.send(embed=pages[0], view=view)
 
+# ══════════════════════════════════════════════════════════════════
+# SLASH COMMANDS
+# ══════════════════════════════════════════════════════════════════
+
+# ── Helpers internos ──────────────────────────────────────────────
+def _is_admin(i: discord.Interaction) -> bool:
+    return i.user.guild_permissions.administrator
+
+def _is_staff(i: discord.Interaction) -> bool:
+    return (i.user.guild_permissions.administrator
+            or i.user.guild_permissions.manage_roles
+            or any(r.name in ROLES_STAFF_CFG for r in i.user.roles))
+
+async def _no_perm(i: discord.Interaction):
+    await i.response.send_message('🔒 No tienes permisos para ese comando.', ephemeral=True)
+
+# ── GENERALES ─────────────────────────────────────────────────────
+@bot.tree.command(name='ping', description='Muestra la latencia del bot')
+async def slash_ping(i: discord.Interaction):
+    lat = round(bot.latency * 1000)
+    color = discord.Color.green() if lat < 100 else discord.Color.yellow() if lat < 200 else discord.Color.red()
+    await i.response.send_message(embed=discord.Embed(title='🏓 Pong!', description=f'**{lat}ms**', color=color))
+
+@bot.tree.command(name='avatar', description='Muestra el avatar de un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_avatar(i: discord.Interaction, usuario: discord.Member = None):
+    m = usuario or i.user
+    embed = discord.Embed(title=f'🖼️ {m.display_name}', color=m.color)
+    embed.set_image(url=m.display_avatar.url)
+    embed.add_field(name='🔗 Link', value=f'[Descargar]({m.display_avatar.url})', inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='banner', description='Muestra el banner de un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_banner(i: discord.Interaction, usuario: discord.Member = None):
+    m = usuario or i.user
+    user = await bot.fetch_user(m.id)
+    if not user.banner:
+        return await i.response.send_message(f'❌ {m.display_name} no tiene banner.', ephemeral=True)
+    embed = discord.Embed(title=f'🖼️ Banner de {m.display_name}', color=m.color)
+    embed.set_image(url=user.banner.url)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='userinfo', description='Información de un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_userinfo(i: discord.Interaction, usuario: discord.Member = None):
+    m = usuario or i.user
+    roles = [r.mention for r in m.roles if r != i.guild.default_role]
+    embed = discord.Embed(title=f'👤 {m}', color=m.color)
+    embed.set_thumbnail(url=m.display_avatar.url)
+    embed.add_field(name='🆔 ID', value=m.id, inline=True)
+    embed.add_field(name='📅 Cuenta', value=m.created_at.strftime('%d/%m/%Y'), inline=True)
+    embed.add_field(name='📥 Se unió', value=m.joined_at.strftime('%d/%m/%Y'), inline=True)
+    embed.add_field(name='🎨 Color', value=str(m.color), inline=True)
+    embed.add_field(name='🤖 Bot', value='Sí' if m.bot else 'No', inline=True)
+    embed.add_field(name='🏆 Roles', value=' '.join(roles) if roles else 'Sin roles', inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='serverinfo', description='Información del servidor')
+async def slash_serverinfo(i: discord.Interaction):
+    g = i.guild
+    embed = discord.Embed(title=f'🏠 {g.name}', color=discord.Color.blurple())
+    if g.icon:
+        embed.set_thumbnail(url=g.icon.url)
+    embed.add_field(name='🆔 ID', value=g.id, inline=True)
+    embed.add_field(name='👑 Dueño', value=g.owner.mention, inline=True)
+    embed.add_field(name='👥 Miembros', value=g.member_count, inline=True)
+    embed.add_field(name='💬 Canales', value=len(g.channels), inline=True)
+    embed.add_field(name='🎭 Roles', value=len(g.roles), inline=True)
+    embed.add_field(name='📅 Creado', value=g.created_at.strftime('%d/%m/%Y'), inline=True)
+    embed.add_field(name='📢 Verificación', value=str(g.verification_level), inline=True)
+    embed.add_field(name='💎 Boosts', value=g.premium_subscription_count, inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='stats', description='Estadísticas del servidor')
+async def slash_stats(i: discord.Interaction):
+    g = i.guild
+    total = g.member_count
+    bots = sum(1 for m in g.members if m.bot)
+    humanos = total - bots
+    en_linea = sum(1 for m in g.members if m.status != discord.Status.offline and not m.bot)
+    embed = discord.Embed(title=f'📊 {g.name}', color=discord.Color.blurple())
+    if g.icon:
+        embed.set_thumbnail(url=g.icon.url)
+    embed.add_field(name='👥 Total', value=total, inline=True)
+    embed.add_field(name='🧑 Humanos', value=humanos, inline=True)
+    embed.add_field(name='🤖 Bots', value=bots, inline=True)
+    embed.add_field(name='🟢 En línea', value=en_linea, inline=True)
+    embed.add_field(name='💬 Canales', value=len(g.text_channels), inline=True)
+    embed.add_field(name='🔊 Voz', value=len(g.voice_channels), inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='botinfo', description='Información del bot')
+async def slash_botinfo(i: discord.Interaction):
+    import platform
+    embed = discord.Embed(title='🤖 Info del Bot', color=discord.Color.blurple())
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    embed.add_field(name='🏷️ Nombre', value=str(bot.user), inline=True)
+    embed.add_field(name='🆔 ID', value=bot.user.id, inline=True)
+    embed.add_field(name='🖥️ Python', value=platform.python_version(), inline=True)
+    embed.add_field(name='📚 discord.py', value=discord.__version__, inline=True)
+    embed.add_field(name='🏠 Servidores', value=len(bot.guilds), inline=True)
+    embed.add_field(name='👥 Usuarios', value=len(bot.users), inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='invitar', description='Link de invitación del bot')
+async def slash_invitar(i: discord.Interaction):
+    url = f'https://discord.com/api/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot'
+    embed = discord.Embed(title='🔗 Invitar', description=f'[Clic aquí]({url})', color=discord.Color.blurple())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='clima', description='Muestra el clima de una ciudad')
+@app_commands.describe(ciudad='Nombre de la ciudad')
+async def slash_clima(i: discord.Interaction, ciudad: str):
+    await i.response.defer()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://wttr.in/{ciudad.replace(' ', '+')}?format=j1") as resp:
+                if resp.status != 200:
+                    return await i.followup.send('❌ Ciudad no encontrada.')
+                data = await resp.json()
+                actual = data['current_condition'][0]
+                embed = discord.Embed(title=f'🌤️ {ciudad.title()}', color=discord.Color.blue())
+                embed.add_field(name='🌡️ Temp', value=f"{actual['temp_C']}°C", inline=True)
+                embed.add_field(name='🤔 Sensación', value=f"{actual['FeelsLikeC']}°C", inline=True)
+                embed.add_field(name='💧 Humedad', value=f"{actual['humidity']}%", inline=True)
+                embed.add_field(name='💨 Viento', value=f"{actual['windspeedKmph']} km/h", inline=True)
+                embed.add_field(name='☁️ Estado', value=actual['weatherDesc'][0]['value'], inline=True)
+                await i.followup.send(embed=embed)
+    except Exception:
+        await i.followup.send('❌ No pude obtener el clima.')
+
+@bot.tree.command(name='traducir', description='Traduce un texto a otro idioma')
+@app_commands.describe(idioma='Código de idioma (ej: en, fr, pt)', texto='Texto a traducir')
+async def slash_traducir(i: discord.Interaction, idioma: str, texto: str):
+    await i.response.defer()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f'https://api.mymemory.translated.net/get?q={texto}&langpair=es|{idioma}') as resp:
+                data = await resp.json()
+                trad = data['responseData']['translatedText']
+                embed = discord.Embed(title='🌍 Traducción', color=discord.Color.teal())
+                embed.add_field(name='📝 Original', value=texto, inline=False)
+                embed.add_field(name='✅ Traducido', value=trad, inline=False)
+                embed.add_field(name='🌐 Idioma', value=idioma, inline=True)
+                await i.followup.send(embed=embed)
+    except Exception:
+        await i.followup.send('❌ No pude traducir.')
+
+@bot.tree.command(name='calcular', description='Calcula una expresión matemática')
+@app_commands.describe(expresion='Expresión (ej: 5+3*2)')
+async def slash_calcular(i: discord.Interaction, expresion: str):
+    try:
+        if not all(c in '0123456789+-*/.() ' for c in expresion):
+            return await i.response.send_message('❌ Solo `+ - * / ( )`.', ephemeral=True)
+        resultado = eval(expresion)
+        embed = discord.Embed(title='🧮 Calculadora', color=discord.Color.green())
+        embed.add_field(name='📝', value=f'`{expresion}`', inline=False)
+        embed.add_field(name='✅', value=f'**{resultado}**', inline=False)
+        await i.response.send_message(embed=embed)
+    except ZeroDivisionError:
+        await i.response.send_message('❌ División entre cero.', ephemeral=True)
+    except Exception:
+        await i.response.send_message('❌ Expresión inválida.', ephemeral=True)
+
+@bot.tree.command(name='color', description='Muestra información de un color HEX')
+@app_commands.describe(hex_color='Color en formato hex (ej: FF0000)')
+async def slash_color(i: discord.Interaction, hex_color: str):
+    hex_color = hex_color.strip('#')
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+    except Exception:
+        return await i.response.send_message('❌ Usa un hex válido (ej: FF0000)', ephemeral=True)
+    embed = discord.Embed(title=f'🎨 #{hex_color.upper()}', color=int(hex_color, 16))
+    embed.add_field(name='R', value=r, inline=True)
+    embed.add_field(name='G', value=g, inline=True)
+    embed.add_field(name='B', value=b, inline=True)
+    embed.set_thumbnail(url=f'https://singlecolorimage.com/get/{hex_color}/100x100')
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='sugerencia', description='Envía una sugerencia')
+@app_commands.describe(texto='Tu sugerencia', canal='Canal destino (opcional)')
+async def slash_sugerencia(i: discord.Interaction, texto: str, canal: discord.TextChannel = None):
+    canal = canal or i.channel
+    embed = discord.Embed(title='💡 Sugerencia', description=texto, color=discord.Color.yellow(), timestamp=datetime.now(timezone.utc))
+    embed.set_author(name=i.user.display_name, icon_url=i.user.display_avatar.url)
+    await canal.send(embed=embed)
+    await i.response.send_message('✅ Sugerencia enviada.', ephemeral=True)
+
+@bot.tree.command(name='reporte', description='Reporta a un usuario')
+@app_commands.describe(usuario='Usuario a reportar', razon='Razón del reporte')
+async def slash_reporte(i: discord.Interaction, usuario: discord.Member, razon: str):
+    embed = discord.Embed(title='🚨 Reporte', color=discord.Color.red(), timestamp=datetime.now(timezone.utc))
+    embed.add_field(name='👤 Reportado', value=usuario.mention, inline=True)
+    embed.add_field(name='📋 Razón', value=razon, inline=True)
+    embed.add_field(name='📢 Por', value=i.user.mention, inline=True)
+    await i.channel.send(embed=embed)
+    await i.response.send_message('✅ Reporte enviado.', ephemeral=True)
+
+@bot.tree.command(name='rng', description='Número aleatorio en un rango')
+@app_commands.describe(minimo='Valor mínimo', maximo='Valor máximo')
+async def slash_rng(i: discord.Interaction, minimo: int = 1, maximo: int = 100):
+    if minimo >= maximo:
+        return await i.response.send_message('❌ El mínimo debe ser menor que el máximo.', ephemeral=True)
+    resultado = random.randint(minimo, maximo)
+    embed = discord.Embed(title='🎲 Número Aleatorio', color=discord.Color.blurple())
+    embed.add_field(name='Rango', value=f'`{minimo}` – `{maximo}`', inline=True)
+    embed.add_field(name='Resultado', value=f'**{resultado}**', inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='buscar', description='Busca en Google')
+@app_commands.describe(termino='Término de búsqueda')
+async def slash_buscar(i: discord.Interaction, termino: str):
+    url = f"https://www.google.com/search?q={termino.replace(' ', '+')}"
+    embed = discord.Embed(title=f'🔍 {termino}', description=f'[Buscar en Google]({url})', color=discord.Color.blue())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='ayuda', description='Muestra todos los comandos del bot')
+async def slash_ayuda(i: discord.Interaction):
+    pages = _build_ayuda_pages(PREFIX)
+    view  = AyudaView(pages, i.user.id)
+    await i.response.send_message(embed=pages[0], view=view)
+
+# ── MODERACIÓN ────────────────────────────────────────────────────
+@bot.tree.command(name='ban', description='Banea a un usuario')
+@app_commands.describe(usuario='Usuario a banear', razon='Razón del ban')
+async def slash_ban(i: discord.Interaction, usuario: discord.Member, razon: str = 'Sin razón'):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    if usuario == i.user:
+        return await i.response.send_message('❌ No puedes banearte.', ephemeral=True)
+    if usuario.guild_permissions.administrator:
+        return await i.response.send_message('❌ No puedes banear a un admin.', ephemeral=True)
+    try:
+        await i.guild.ban(usuario, reason=f'[{i.user}] {razon}', delete_message_days=0)
+    except discord.Forbidden:
+        return await i.response.send_message('❌ Sin permisos.', ephemeral=True)
+    embed = discord.Embed(title='🔨 Baneado', color=discord.Color.red())
+    embed.add_field(name='👤 Usuario', value=f'{usuario} (`{usuario.id}`)', inline=True)
+    embed.add_field(name='📋 Razón', value=razon, inline=True)
+    embed.add_field(name='👮 Por', value=i.user.mention, inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='unban', description='Desbanea a un usuario por ID o nombre')
+@app_commands.describe(usuario='ID o nombre#tag del usuario baneado')
+async def slash_unban(i: discord.Interaction, usuario: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    bans = [entry async for entry in i.guild.bans()]
+    objetivo = None
+    for entry in bans:
+        if str(entry.user.id) == usuario or str(entry.user) == usuario:
+            objetivo = entry.user
+            break
+    if not objetivo:
+        return await i.response.send_message(f'❌ No encontré `{usuario}` en los bans.', ephemeral=True)
+    await i.guild.unban(objetivo, reason=f'Desbaneado por {i.user}')
+    embed = discord.Embed(title='✅ Desbaneado', color=discord.Color.green())
+    embed.add_field(name='👤 Usuario', value=f'{objetivo} (`{objetivo.id}`)', inline=True)
+    embed.add_field(name='👮 Por', value=i.user.mention, inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='kick', description='Expulsa a un usuario')
+@app_commands.describe(usuario='Usuario a expulsar', razon='Razón')
+async def slash_kick(i: discord.Interaction, usuario: discord.Member, razon: str = 'Sin razón'):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    if usuario == i.user:
+        return await i.response.send_message('❌ No puedes kickearte.', ephemeral=True)
+    try:
+        await i.guild.kick(usuario, reason=f'[{i.user}] {razon}')
+    except discord.Forbidden:
+        return await i.response.send_message('❌ Sin permisos.', ephemeral=True)
+    embed = discord.Embed(title='👢 Expulsado', color=discord.Color.orange())
+    embed.add_field(name='👤 Usuario', value=str(usuario), inline=True)
+    embed.add_field(name='📋 Razón', value=razon, inline=True)
+    embed.add_field(name='👮 Por', value=i.user.mention, inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='mute', description='Silencia a un usuario')
+@app_commands.describe(usuario='Usuario a mutear', minutos='Duración en minutos', razon='Razón')
+async def slash_mute(i: discord.Interaction, usuario: discord.Member, minutos: int = 10, razon: str = 'Sin razón'):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    if not 1 <= minutos <= 40320:
+        return await i.response.send_message('❌ Entre 1 y 40320 minutos.', ephemeral=True)
+    import datetime as dt
+    try:
+        until = discord.utils.utcnow() + dt.timedelta(minutes=minutos)
+        await usuario.timeout(until, reason=f'[{i.user}] {razon}')
+    except discord.Forbidden:
+        return await i.response.send_message('❌ Sin permisos.', ephemeral=True)
+    embed = discord.Embed(title='🔇 Muteado', color=discord.Color.dark_grey())
+    embed.add_field(name='👤 Usuario', value=usuario.mention, inline=True)
+    embed.add_field(name='⏰ Duración', value=f'{minutos} min', inline=True)
+    embed.add_field(name='📋 Razón', value=razon, inline=True)
+    embed.add_field(name='👮 Por', value=i.user.mention, inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='unmute', description='Desmutea a un usuario')
+@app_commands.describe(usuario='Usuario a desmutear')
+async def slash_unmute(i: discord.Interaction, usuario: discord.Member):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    try:
+        await usuario.timeout(None)
+    except discord.Forbidden:
+        return await i.response.send_message('❌ Sin permisos.', ephemeral=True)
+    await i.response.send_message(f'✅ {usuario.mention} **desmuteado**.')
+
+@bot.tree.command(name='limpiar', description='Borra mensajes del canal')
+@app_commands.describe(cantidad='Cantidad de mensajes (1-100)')
+async def slash_limpiar(i: discord.Interaction, cantidad: int = 10):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    if not 1 <= cantidad <= 100:
+        return await i.response.send_message('❌ Entre 1 y 100.', ephemeral=True)
+    await i.response.defer(ephemeral=True)
+    borrados = await i.channel.purge(limit=cantidad)
+    await i.followup.send(f'🗑️ **{len(borrados)}** mensajes borrados.', ephemeral=True)
+
+@bot.tree.command(name='limpiar_bots', description='Borra mensajes de bots del canal')
+@app_commands.describe(cantidad='Mensajes a revisar (máx 50)')
+async def slash_limpiar_bots(i: discord.Interaction, cantidad: int = 50):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.response.defer(ephemeral=True)
+    borrados = await i.channel.purge(limit=cantidad, check=lambda m: m.author.bot)
+    await i.followup.send(f'🤖 **{len(borrados)}** mensajes de bots borrados.', ephemeral=True)
+
+@bot.tree.command(name='limpiar_usuario', description='Borra mensajes de un usuario')
+@app_commands.describe(usuario='Usuario objetivo', cantidad='Mensajes a revisar (máx 50)')
+async def slash_limpiar_usuario(i: discord.Interaction, usuario: discord.Member, cantidad: int = 50):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.response.defer(ephemeral=True)
+    borrados = await i.channel.purge(limit=cantidad, check=lambda m: m.author == usuario)
+    await i.followup.send(f'🗑️ **{len(borrados)}** mensajes de {usuario.mention} borrados.', ephemeral=True)
+
+@bot.tree.command(name='nick', description='Cambia el nick de un usuario')
+@app_commands.describe(usuario='Usuario objetivo', nuevo_nick='Nuevo apodo (vacío para resetear)')
+async def slash_nick(i: discord.Interaction, usuario: discord.Member, nuevo_nick: str = None):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    try:
+        viejo = usuario.display_name
+        await usuario.edit(nick=nuevo_nick)
+        if nuevo_nick:
+            await i.response.send_message(f'✅ Nick de {usuario.mention}: **{viejo}** → **{nuevo_nick}**')
+        else:
+            await i.response.send_message(f'✅ Nick de {usuario.mention} restablecido.')
+    except discord.Forbidden:
+        await i.response.send_message('❌ Sin permisos para cambiar ese nick.', ephemeral=True)
+
+@bot.tree.command(name='massnick', description='Cambia el nick de todos los miembros')
+@app_commands.describe(nuevo_nick='Nuevo nick para todos')
+async def slash_massnick(i: discord.Interaction, nuevo_nick: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.response.defer()
+    count = 0
+    for m in i.guild.members:
+        if not m.bot:
+            try:
+                await m.edit(nick=nuevo_nick)
+                count += 1
+            except Exception:
+                pass
+    await i.followup.send(f'✅ Nick cambiado a **{nuevo_nick}** en **{count}** miembros.')
+
+# ── WARNS ─────────────────────────────────────────────────────────
+@bot.tree.command(name='warn', description='Advierte a un usuario')
+@app_commands.describe(usuario='Usuario a advertir', razon='Razón')
+async def slash_warn(i: discord.Interaction, usuario: discord.Member, razon: str = 'Sin razón'):
+    if not _is_staff(i):
+        return await _no_perm(i)
+    if usuario.guild_permissions.administrator:
+        return await i.response.send_message('❌ No puedes advertir a un administrador.', ephemeral=True)
+    data = cargar_warns()
+    uid = str(usuario.id)
+    if uid not in data:
+        data[uid] = []
+    data[uid].append({'razon': razon, 'por': str(i.user.id), 'fecha': datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')})
+    guardar_warns(data)
+    total = len(data[uid])
+    embed = discord.Embed(title='⚠️ Advertencia', color=discord.Color.orange())
+    embed.add_field(name='👤 Usuario', value=usuario.mention, inline=True)
+    embed.add_field(name='📋 Razón', value=razon, inline=True)
+    embed.add_field(name='📊 Total', value=f'{total} warn(s)', inline=True)
+    embed.add_field(name='👮 Por', value=i.user.mention, inline=True)
+    await i.response.send_message(embed=embed)
+    if total >= 5:
+        await i.guild.ban(usuario, reason='[AutoWarn] 5 advertencias')
+        await i.channel.send(f'🔨 {usuario.mention} fue baneado automáticamente por 5 warns.')
+    elif total >= 3:
+        import datetime as dt
+        until = discord.utils.utcnow() + dt.timedelta(hours=1)
+        try:
+            await usuario.timeout(until, reason='[AutoWarn] 3 advertencias')
+            await i.channel.send(f'🔇 {usuario.mention} muteado 1h por 3 warns.')
+        except Exception:
+            pass
+
+@bot.tree.command(name='warns', description='Ver las advertencias de un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_warns(i: discord.Interaction, usuario: discord.Member = None):
+    if not _is_staff(i):
+        return await _no_perm(i)
+    m = usuario or i.user
+    data = cargar_warns()
+    lista = data.get(str(m.id), [])
+    embed = discord.Embed(title=f'⚠️ Warns de {m.display_name}', color=discord.Color.orange())
+    embed.set_thumbnail(url=m.display_avatar.url)
+    if not lista:
+        embed.description = '✅ Sin advertencias.'
+    else:
+        for idx, w in enumerate(lista, 1):
+            embed.add_field(name=f"#{idx} — {w['fecha']}", value=f"**Razón:** {w['razon']}\n**Por:** <@{w['por']}>", inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='clearwarns', description='Borra todos los warns de un usuario')
+@app_commands.describe(usuario='Usuario objetivo')
+async def slash_clearwarns(i: discord.Interaction, usuario: discord.Member):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    data = cargar_warns()
+    data.pop(str(usuario.id), None)
+    guardar_warns(data)
+    await i.response.send_message(f'✅ Warns de {usuario.mention} borrados.')
+
+@bot.tree.command(name='delwarn', description='Borra un warn específico de un usuario')
+@app_commands.describe(usuario='Usuario objetivo', numero='Número del warn a borrar')
+async def slash_delwarn(i: discord.Interaction, usuario: discord.Member, numero: int):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    data = cargar_warns()
+    uid = str(usuario.id)
+    lista = data.get(uid, [])
+    if numero < 1 or numero > len(lista):
+        return await i.response.send_message(f'❌ Número inválido. Tiene {len(lista)} warn(s).', ephemeral=True)
+    borrado = lista.pop(numero - 1)
+    data[uid] = lista
+    guardar_warns(data)
+    await i.response.send_message(f"✅ Warn #{numero} de {usuario.mention} borrado. (`{borrado['razon']}`)")
+
+# ── CANALES ───────────────────────────────────────────────────────
+@bot.tree.command(name='lock', description='Bloquea el canal actual')
+async def slash_lock(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.set_permissions(i.guild.default_role, send_messages=False)
+    await i.response.send_message(f'🔒 {i.channel.mention} bloqueado.')
+
+@bot.tree.command(name='unlock', description='Desbloquea el canal actual')
+async def slash_unlock(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.set_permissions(i.guild.default_role, send_messages=True)
+    await i.response.send_message(f'🔓 {i.channel.mention} desbloqueado.')
+
+@bot.tree.command(name='slowmode', description='Activa el modo lento en el canal')
+@app_commands.describe(segundos='Segundos (0 para desactivar)')
+async def slash_slowmode(i: discord.Interaction, segundos: int = 0):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.edit(slowmode_delay=segundos)
+    if segundos == 0:
+        await i.response.send_message('✅ Modo lento desactivado.')
+    else:
+        await i.response.send_message(f'⏱️ Modo lento: **{segundos}s**')
+
+@bot.tree.command(name='hide', description='Oculta el canal actual')
+async def slash_hide(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.set_permissions(i.guild.default_role, view_channel=False)
+    await i.response.send_message('🙈 Canal ocultado.', ephemeral=True)
+
+@bot.tree.command(name='show', description='Muestra el canal actual')
+async def slash_show(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.set_permissions(i.guild.default_role, view_channel=True)
+    await i.response.send_message(f'👁️ {i.channel.mention} ahora es visible.')
+
+@bot.tree.command(name='topic', description='Cambia el tema del canal')
+@app_commands.describe(texto='Nuevo tema')
+async def slash_topic(i: discord.Interaction, texto: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    await i.channel.edit(topic=texto)
+    await i.response.send_message(f'✅ Tema actualizado.')
+
+@bot.tree.command(name='rename_canal', description='Renombra el canal actual')
+@app_commands.describe(nombre='Nuevo nombre')
+async def slash_rename_canal(i: discord.Interaction, nombre: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    viejo = i.channel.name
+    await i.channel.edit(name=nombre)
+    await i.response.send_message(f'✅ Canal renombrado: **{viejo}** → **{nombre}**')
+
+@bot.tree.command(name='crear_canal', description='Crea un nuevo canal de texto')
+@app_commands.describe(nombre='Nombre del canal')
+async def slash_crear_canal(i: discord.Interaction, nombre: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    canal = await i.guild.create_text_channel(nombre)
+    await i.response.send_message(f'✅ Canal {canal.mention} creado.')
+
+@bot.tree.command(name='eliminar_canal', description='Elimina el canal actual')
+async def slash_eliminar_canal(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    nombre = i.channel.name
+    await i.response.send_message(f'🗑️ Canal **#{nombre}** eliminado.')
+    await i.channel.delete()
+
+@bot.tree.command(name='clonar_canal', description='Clona el canal actual')
+async def slash_clonar_canal(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    nuevo = await i.channel.clone()
+    await i.response.send_message(f'✅ Canal clonado: {nuevo.mention}')
+
+@bot.tree.command(name='nsfw', description='Activa/desactiva NSFW en el canal')
+async def slash_nsfw(i: discord.Interaction):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    estado = not i.channel.is_nsfw()
+    await i.channel.edit(nsfw=estado)
+    await i.response.send_message(f'{"🔞 NSFW activado" if estado else "✅ NSFW desactivado"} en {i.channel.mention}.')
+
+# ── ROLES ─────────────────────────────────────────────────────────
+@bot.tree.command(name='dar_rol', description='Da un rol a un usuario (busca por nombre)')
+@app_commands.describe(usuario='Usuario objetivo', rol='Nombre del rol')
+async def slash_dar_rol(i: discord.Interaction, usuario: discord.Member, rol: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    coincidencias = [r for r in i.guild.roles if rol.lower() in r.name.lower() and r != i.guild.default_role]
+    if not coincidencias:
+        return await i.response.send_message(f'❌ No encontré rol con `{rol}`.', ephemeral=True)
+    r = coincidencias[0]
+    await usuario.add_roles(r)
+    await i.response.send_message(f'✅ Rol **{r.name}** dado a {usuario.mention}.')
+
+@bot.tree.command(name='quitar_rol', description='Quita un rol a un usuario')
+@app_commands.describe(usuario='Usuario objetivo', rol='Nombre del rol')
+async def slash_quitar_rol(i: discord.Interaction, usuario: discord.Member, rol: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    coincidencias = [r for r in usuario.roles if rol.lower() in r.name.lower()]
+    if not coincidencias:
+        return await i.response.send_message(f'❌ {usuario.mention} no tiene ese rol.', ephemeral=True)
+    r = coincidencias[0]
+    await usuario.remove_roles(r)
+    await i.response.send_message(f'✅ Rol **{r.name}** quitado a {usuario.mention}.')
+
+@bot.tree.command(name='crear_rol', description='Crea un nuevo rol')
+@app_commands.describe(nombre='Nombre del rol', color='Color hex (ej: FF0000)')
+async def slash_crear_rol(i: discord.Interaction, nombre: str, color: str = '000000'):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    try:
+        c = discord.Color(int(color.strip('#'), 16))
+    except Exception:
+        c = discord.Color.default()
+    r = await i.guild.create_role(name=nombre, color=c)
+    await i.response.send_message(f'✅ Rol {r.mention} creado.')
+
+@bot.tree.command(name='eliminar_rol', description='Elimina un rol del servidor')
+@app_commands.describe(rol='Nombre del rol a eliminar')
+async def slash_eliminar_rol(i: discord.Interaction, rol: str):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    coincidencias = [r for r in i.guild.roles if rol.lower() in r.name.lower() and r != i.guild.default_role]
+    if not coincidencias:
+        return await i.response.send_message(f'❌ No encontré rol con `{rol}`.', ephemeral=True)
+    r = coincidencias[0]
+    await r.delete()
+    await i.response.send_message(f'🗑️ Rol **{r.name}** eliminado.')
+
+@bot.tree.command(name='roles_usuario', description='Lista los roles de un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_roles_usuario(i: discord.Interaction, usuario: discord.Member = None):
+    m = usuario or i.user
+    roles = [r.mention for r in m.roles if r != i.guild.default_role]
+    embed = discord.Embed(title=f'🎭 Roles de {m.display_name}', color=m.color)
+    embed.description = ' '.join(roles) if roles else 'Sin roles'
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='listar_roles', description='Lista todos los roles del servidor')
+async def slash_listar_roles(i: discord.Interaction):
+    roles = [r.mention for r in i.guild.roles if r != i.guild.default_role]
+    paginas = [roles[x:x+20] for x in range(0, len(roles), 20)]
+    embed = discord.Embed(title=f'🎭 Roles de {i.guild.name} ({len(roles)})', color=discord.Color.blurple())
+    embed.description = ' '.join(paginas[0]) if paginas else 'Sin roles'
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='anuncio', description='Envía un anuncio a un canal')
+@app_commands.describe(mensaje='Mensaje del anuncio', canal='Canal destino (opcional)')
+async def slash_anuncio(i: discord.Interaction, mensaje: str, canal: discord.TextChannel = None):
+    if not _is_admin(i):
+        return await _no_perm(i)
+    destino = canal or i.channel
+    embed = discord.Embed(description=mensaje, color=discord.Color.blurple(), timestamp=datetime.now(timezone.utc))
+    embed.set_author(name=i.guild.name, icon_url=i.guild.icon.url if i.guild.icon else None)
+    await destino.send(embed=embed)
+    await i.response.send_message('✅ Anuncio enviado.', ephemeral=True)
+
+# ── JUEGOS ────────────────────────────────────────────────────────
+@bot.tree.command(name='dado', description='Lanza un dado')
+@app_commands.describe(lados='Número de lados (2-100)')
+async def slash_dado(i: discord.Interaction, lados: int = 6):
+    if not 2 <= lados <= 100:
+        return await i.response.send_message('❌ Entre 2 y 100.', ephemeral=True)
+    resultado = random.randint(1, lados)
+    embed = discord.Embed(title='🎲 Dado', color=discord.Color.blurple())
+    embed.add_field(name=f'D{lados}', value=f'**{resultado}**', inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='dado_personalizado', description='Lanza varios dados')
+@app_commands.describe(cantidad='Cantidad de dados', lados='Lados por dado')
+async def slash_dado_personalizado(i: discord.Interaction, cantidad: int = 2, lados: int = 6):
+    if not 1 <= cantidad <= 20 or not 2 <= lados <= 100:
+        return await i.response.send_message('❌ Cantidad 1-20, lados 2-100.', ephemeral=True)
+    resultados = [random.randint(1, lados) for _ in range(cantidad)]
+    embed = discord.Embed(title=f'🎲 {cantidad}D{lados}', color=discord.Color.blurple())
+    embed.add_field(name='Resultados', value=' | '.join(f'**{r}**' for r in resultados), inline=False)
+    embed.add_field(name='Total', value=f'**{sum(resultados)}**', inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='moneda', description='Lanza una moneda')
+async def slash_moneda(i: discord.Interaction):
+    resultado = random.choice(['🪙 Cara', '🪙 Sello'])
+    embed = discord.Embed(title='🪙 Moneda', description=f'**{resultado}**', color=discord.Color.gold())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='ruleta', description='Elige aleatoriamente entre opciones')
+@app_commands.describe(opciones='Opciones separadas por coma (ej: pizza, sushi, burger)')
+async def slash_ruleta(i: discord.Interaction, opciones: str):
+    lista = [o.strip() for o in opciones.split(',') if o.strip()]
+    if len(lista) < 2:
+        return await i.response.send_message('❌ Al menos 2 opciones separadas por coma.', ephemeral=True)
+    elegida = random.choice(lista)
+    embed = discord.Embed(title='🎡 Ruleta', color=discord.Color.red())
+    embed.add_field(name='Opciones', value=' | '.join(f'`{o}`' for o in lista), inline=False)
+    embed.add_field(name='🏆 Elegida', value=f'**{elegida}**', inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='8ball', description='Pregunta a la bola mágica')
+@app_commands.describe(pregunta='Tu pregunta')
+async def slash_8ball(i: discord.Interaction, pregunta: str):
+    respuestas = ['✅ Sí, definitivamente.', '✅ Todo indica que sí.', '✅ Sin duda.', '🤔 No está claro.', '🤔 Concéntrate y pregunta de nuevo.', '❌ No cuentes con ello.', '❌ Mi respuesta es no.', '❌ Definitivamente no.']
+    embed = discord.Embed(title='🎱 Bola Mágica', color=discord.Color.dark_purple())
+    embed.add_field(name='❓ Pregunta', value=pregunta, inline=False)
+    embed.add_field(name='🔮 Respuesta', value=random.choice(respuestas), inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='piedra', description='Piedra, papel o tijera contra el bot')
+@app_commands.describe(eleccion='Tu elección')
+@app_commands.choices(eleccion=[
+    app_commands.Choice(name='Piedra 🪨', value='piedra'),
+    app_commands.Choice(name='Papel 📄', value='papel'),
+    app_commands.Choice(name='Tijera ✂️', value='tijera'),
+])
+async def slash_piedra(i: discord.Interaction, eleccion: str):
+    opciones = ['piedra', 'papel', 'tijera']
+    bot_eleccion = random.choice(opciones)
+    emojis = {'piedra': '🪨', 'papel': '📄', 'tijera': '✂️'}
+    if eleccion == bot_eleccion:
+        resultado, color = '🤝 Empate', discord.Color.yellow()
+    elif (eleccion == 'piedra' and bot_eleccion == 'tijera') or (eleccion == 'papel' and bot_eleccion == 'piedra') or (eleccion == 'tijera' and bot_eleccion == 'papel'):
+        resultado, color = '🏆 ¡Ganaste!', discord.Color.green()
+    else:
+        resultado, color = '😈 ¡Perdiste!', discord.Color.red()
+    embed = discord.Embed(title='🎮 RPS', description=resultado, color=color)
+    embed.add_field(name='Tú', value=emojis[eleccion], inline=True)
+    embed.add_field(name='Bot', value=emojis[bot_eleccion], inline=True)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='verdad_o_reto', description='Verdad o reto para un usuario')
+@app_commands.describe(usuario='Usuario objetivo (opcional)')
+async def slash_verdad_o_reto(i: discord.Interaction, usuario: discord.Member = None):
+    m = usuario or i.user
+    verdades = ['¿Cuál es tu mayor miedo?', '¿Qué es lo más embarazoso que te ha pasado?', '¿Tienes algún crush aquí?', '¿Cuál es tu mayor defecto?']
+    retos = ["Cambia tu nick a 'Pollo Frito' por 1 hora.", 'Manda un meme al canal principal.', 'Escribe un poema sobre el bot.']
+    tipo = random.choice(['Verdad 🔮', 'Reto 💥'])
+    contenido = random.choice(verdades) if 'Verdad' in tipo else random.choice(retos)
+    color = discord.Color.purple() if 'Verdad' in tipo else discord.Color.orange()
+    embed = discord.Embed(title=f'🎮 {tipo}', description=f'Para {m.mention}\n\n**{contenido}**', color=color)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='acertijo', description='Presenta un acertijo')
+async def slash_acertijo(i: discord.Interaction):
+    acertijos = [('Tengo ciudades, pero no hay casas. Tengo montañas, pero no hay árboles. Tengo agua, pero no hay peces. ¿Qué soy?', 'Un mapa'), ('Cuanto más me seques, más mojado te quedas. ¿Qué soy?', 'Una toalla'), ('Tengo manos pero no puedo aplaudir. ¿Qué soy?', 'Un reloj'), ('Siempre delante de ti, pero no se puede ver. ¿Qué soy?', 'El futuro')]
+    pregunta, respuesta = random.choice(acertijos)
+    embed = discord.Embed(title='🧩 Acertijo', description=f'{pregunta}\n\n||**Respuesta:** {respuesta}||', color=discord.Color.purple())
+    await i.response.send_message(embed=embed)
+
+# ── FUN ───────────────────────────────────────────────────────────
+@bot.tree.command(name='frase', description='Frase motivacional aleatoria')
+async def slash_frase(i: discord.Interaction):
+    embed = discord.Embed(title='💬 Frase del día', description=f'*{random.choice(FRASES_MOTIVACION)}*', color=discord.Color.teal())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='chiste', description='Chiste aleatorio')
+async def slash_chiste(i: discord.Interaction):
+    embed = discord.Embed(title='😂 Chiste', description=random.choice(CHISTES), color=discord.Color.yellow())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='meme', description='Meme aleatorio')
+async def slash_meme(i: discord.Interaction):
+    await i.response.defer()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://meme-api.com/gimme') as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    embed = discord.Embed(title=data['title'], color=discord.Color.orange())
+                    embed.set_image(url=data['url'])
+                    return await i.followup.send(embed=embed)
+    except Exception:
+        pass
+    await i.followup.send('❌ No pude obtener un meme. Intenta más tarde.')
+
+@bot.tree.command(name='horoscopo', description='Horóscopo de un signo zodiacal')
+@app_commands.describe(signo='Tu signo del zodiaco')
+@app_commands.choices(signo=[app_commands.Choice(name=s, value=s) for s in ['Aries','Tauro','Géminis','Cáncer','Leo','Virgo','Libra','Escorpio','Sagitario','Capricornio','Acuario','Piscis']])
+async def slash_horoscopo(i: discord.Interaction, signo: str):
+    predicciones = ['Hoy es un gran día para tomar decisiones importantes.', 'Alguien cercano te sorprenderá gratamente.', 'El universo conspira a tu favor. Confía en el proceso.', 'Un reto te ayudará a crecer. No le temas.', 'La fortuna sonríe a los valientes hoy.']
+    embed = discord.Embed(title=f'🔮 {signo}', description=random.choice(predicciones), color=discord.Color.purple())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='personalidad', description='Descubre tu tipo de personalidad')
+async def slash_personalidad(i: discord.Interaction):
+    tipos = ['🧠 Analítico — Lógico y detallista', '❤️ Empático — Sensible y comprensivo', '🦁 Líder — Decidido y carismático', '🎨 Creativo — Imaginativo e innovador', '🧘 Tranquilo — Paciente y reflexivo']
+    embed = discord.Embed(title=f'🔮 {i.user.display_name}', description=random.choice(tipos), color=discord.Color.purple())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='compatibilidad', description='Compatibilidad entre dos usuarios')
+@app_commands.describe(usuario='Usuario con quien comparar')
+async def slash_compatibilidad(i: discord.Interaction, usuario: discord.Member):
+    pct = random.randint(0, 100)
+    color = discord.Color.green() if pct >= 70 else discord.Color.yellow() if pct >= 40 else discord.Color.red()
+    barra = '█' * (pct // 10) + '░' * (10 - pct // 10)
+    embed = discord.Embed(title='💞 Compatibilidad', color=color)
+    embed.add_field(name='Pareja', value=f'{i.user.mention} & {usuario.mention}', inline=False)
+    embed.add_field(name='Resultado', value=f'`{barra}` **{pct}%**', inline=False)
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='frase_personaje', description='Frase de un personaje de anime')
+@app_commands.describe(personaje='Nombre del personaje (opcional)')
+async def slash_frase_personaje(i: discord.Interaction, personaje: str = None):
+    if personaje:
+        frases = FRASES_PERSONAJES.get(personaje.lower())
+        if not frases:
+            return await i.response.send_message(f'❌ Personaje no encontrado. Usa `/personajes_lista`.', ephemeral=True)
+    else:
+        personaje, frases = random.choice(list(FRASES_PERSONAJES.items()))
+    embed = discord.Embed(title=f'🎌 {personaje.title()}', description=f'*"{random.choice(frases)}"*', color=discord.Color.red())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='personajes_lista', description='Lista personajes de anime disponibles')
+async def slash_personajes_lista(i: discord.Interaction):
+    lista = ', '.join(f'`{p}`' for p in FRASES_PERSONAJES.keys())
+    embed = discord.Embed(title='🎌 Personajes', description=lista, color=discord.Color.red())
+    await i.response.send_message(embed=embed)
+
+# ── SORTEOS ───────────────────────────────────────────────────────
+@bot.tree.command(name='sorteo', description='Inicia un sorteo')
+@app_commands.describe(segundos='Duración en segundos (10-86400)', premio='Premio del sorteo')
+async def slash_sorteo(i: discord.Interaction, segundos: int, premio: str):
+    if not _is_staff(i):
+        return await _no_perm(i)
+    if not 10 <= segundos <= 86400:
+        return await i.response.send_message('❌ Entre 10s y 24h.', ephemeral=True)
+    embed = discord.Embed(title='🎁 SORTEO', description=f'**Premio:** {premio}\n**Duración:** {segundos}s\nReacciona con 🎉 para participar!', color=discord.Color.gold(), timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text=f'Organizado por {i.user.display_name}')
+    await i.response.send_message(embed=embed)
+    msg = await i.original_response()
+    await msg.add_reaction('🎉')
+    await asyncio.sleep(segundos)
+    msg = await i.channel.fetch_message(msg.id)
+    reaccion = discord.utils.get(msg.reactions, emoji='🎉')
+    usuarios = [u async for u in reaccion.users() if not u.bot] if reaccion else []
+    if not usuarios:
+        await i.channel.send('😢 Nadie participó en el sorteo.')
+    else:
+        ganador = random.choice(usuarios)
+        await i.channel.send(f'🎉 ¡{ganador.mention} ganó **{premio}**! Felicidades!')
+
+@bot.tree.command(name='encuesta_si_no', description='Crea una encuesta de Sí/No')
+@app_commands.describe(pregunta='Pregunta de la encuesta')
+async def slash_encuesta_si_no(i: discord.Interaction, pregunta: str):
+    if not _is_staff(i):
+        return await _no_perm(i)
+    embed = discord.Embed(title='📊 Encuesta', description=pregunta, color=discord.Color.blurple(), timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text=f'Por {i.user.display_name}')
+    await i.response.send_message(embed=embed)
+    msg = await i.original_response()
+    await msg.add_reaction('✅')
+    await msg.add_reaction('❌')
+
+# ── ROLEPLAY ──────────────────────────────────────────────────────
+@bot.tree.command(name='pareja', description='Ver tu pareja actual')
+async def slash_pareja(i: discord.Interaction):
+    data = cargar_parejas()
+    uid = str(i.user.id)
+    if uid not in data:
+        return await i.response.send_message('💔 No tienes pareja.', ephemeral=True)
+    pareja_id = data[uid]
+    pareja = i.guild.get_member(int(pareja_id))
+    embed = discord.Embed(title='💑 Pareja', description=f'{i.user.mention} ❤️ {pareja.mention if pareja else f"<@{pareja_id}>"}', color=discord.Color.pink())
+    await i.response.send_message(embed=embed)
+
+@bot.tree.command(name='divorcio', description='Divorciarte de tu pareja')
+async def slash_divorcio(i: discord.Interaction):
+    data = cargar_parejas()
+    uid = str(i.user.id)
+    if uid not in data:
+        return await i.response.send_message('💔 No tienes pareja.', ephemeral=True)
+    pareja_id = data.pop(uid)
+    data.pop(pareja_id, None)
+    guardar_parejas(data)
+    await i.response.send_message(f'💔 {i.user.mention} se divorció.')
+
+# ── CUMPLEAÑOS ────────────────────────────────────────────────────
+@bot.tree.command(name='cumple', description='Registra tu cumpleaños')
+@app_commands.describe(fecha='Fecha en formato DD/MM (ej: 25/12). Vacío para ver el tuyo.')
+async def slash_cumple(i: discord.Interaction, fecha: str = None):
+    try:
+        data = cargar_cumples()
+    except Exception:
+        data = {}
+    uid = str(i.user.id)
+    if not fecha:
+        c = data.get(uid)
+        if c:
+            return await i.response.send_message(f'🎂 Tu cumpleaños: **{c}**', ephemeral=True)
+        return await i.response.send_message('❌ No tienes cumpleaños registrado.', ephemeral=True)
+    try:
+        dia, mes = map(int, fecha.split('/'))
+        assert 1 <= dia <= 31 and 1 <= mes <= 12
+    except Exception:
+        return await i.response.send_message('❌ Formato inválido. Usa DD/MM.', ephemeral=True)
+    data[uid] = fecha
+    try:
+        guardar_cumples(data)
+    except Exception:
+        pass
+    await i.response.send_message(f'✅ Cumpleaños registrado: **{fecha}**', ephemeral=True)
+
+@bot.tree.command(name='cumple_ver', description='Ver el cumpleaños de un usuario')
+@app_commands.describe(usuario='Usuario objetivo')
+async def slash_cumple_ver(i: discord.Interaction, usuario: discord.Member):
+    try:
+        data = cargar_cumples()
+    except Exception:
+        data = {}
+    c = data.get(str(usuario.id))
+    if not c:
+        return await i.response.send_message(f'❌ {usuario.display_name} no tiene cumpleaños registrado.', ephemeral=True)
+    await i.response.send_message(f'🎂 Cumpleaños de {usuario.mention}: **{c}**')
+
+@bot.tree.command(name='recordar', description='Programa un recordatorio')
+@app_commands.describe(tiempo='Tiempo (ej: 10m, 2h, 30s)', mensaje='Mensaje del recordatorio')
+async def slash_recordar(i: discord.Interaction, tiempo: str, mensaje: str):
+    try:
+        unidad = tiempo[-1].lower()
+        valor = int(tiempo[:-1])
+        segundos = valor * {'s': 1, 'm': 60, 'h': 3600}.get(unidad, 0)
+        if segundos <= 0 or segundos > 86400:
+            raise ValueError
+    except Exception:
+        return await i.response.send_message('❌ Formato: `30s`, `5m`, `2h` (máx 24h).', ephemeral=True)
+    await i.response.send_message(f'⏰ Recordatorio en **{tiempo}**: {mensaje}', ephemeral=True)
+    await asyncio.sleep(segundos)
+    await i.user.send(f'⏰ **Recordatorio:** {mensaje}')
+
+# ── ANIME ─────────────────────────────────────────────────────────
+def _make_anime_slash(accion: str, info: dict):
+    @bot.tree.command(name=accion, description=info['msg'].replace('{a}', 'tú').replace('{b}', 'alguien'))
+    @app_commands.describe(usuario='Usuario objetivo (opcional)')
+    @app_commands.rename(usuario='usuario')
+    async def _slash_anime(i: discord.Interaction, usuario: discord.Member = None):
+        a = i.user.display_name
+        b = usuario.display_name if usuario else 'todos'
+        msg = info['msg'].format(a=a, b=b)
+        gif = await obtener_gif_anime(info['gif_tag'])
+        embed = discord.Embed(description=f'**{msg}**', color=discord.Color.pink())
+        if gif:
+            embed.set_image(url=gif)
+        await i.response.send_message(embed=embed)
+    _slash_anime.__name__ = f'slash_{accion}'
+
+for _a, _i in ANIME_ACCIONES.items():
+    _make_anime_slash(_a, _i)
+
+# ── CONFIG ────────────────────────────────────────────────────────
+@bot.tree.command(name='setprefix', description='Cambia el prefijo del bot')
+@app_commands.describe(nuevo_prefijo='Nuevo prefijo (ej: ?, ., $)')
+async def slash_setprefix(i: discord.Interaction, nuevo_prefijo: str):
+    if not i.user.guild_permissions.administrator:
+        return await _no_perm(i)
+    global PREFIX
+    PREFIX = nuevo_prefijo
+    bot.command_prefix = nuevo_prefijo
+    cfg = cargar_config()
+    cfg['prefix'] = nuevo_prefijo
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=2)
+    await i.response.send_message(f'✅ Prefijo cambiado a `{nuevo_prefijo}`')
+
+# ─────────────────────────────────────────────────────────────────
+
 @bot.event
 async def on_ready():
     log.info(f'Bot conectado: {bot.user} (ID: {bot.user.id})')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f'{PREFIX}ayuda | AntiNuke'))
     if not watermark_guardian.is_running():
         watermark_guardian.start()
+    try:
+        synced = await bot.tree.sync()
+        log.info(f'Slash commands sincronizados: {len(synced)} comandos')
+    except Exception as e:
+        log.error(f'Error al sincronizar slash commands: {e}')
 
 @tasks.loop(minutes=30)
 async def watermark_guardian():
