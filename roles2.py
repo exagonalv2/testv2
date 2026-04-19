@@ -42,7 +42,7 @@ def _enforce_watermark(embed: discord.Embed) -> discord.Embed:
         embed._fields = [f for f in embed._fields if str(f.get('value', '')).strip() and str(f.get('name', '')).strip()]
     footer = embed.footer
     current_text = footer.text if footer and footer.text else ''
-    current_icon = footer.icon_url if footer and footer.icon_url else discord.embeds.EmptyEmbed
+    current_icon = footer.icon_url if footer and footer.icon_url else None
     _wm, _sep = _get_wm(), _get_sep()
     if not current_text:
         discord.Embed.set_footer(embed, text=_wm)
@@ -51,11 +51,11 @@ def _enforce_watermark(embed: discord.Embed) -> discord.Embed:
     return embed
 _original_set_footer = discord.Embed.set_footer
 
-def _protected_set_footer(self, *, text=discord.embeds.EmptyEmbed, icon_url=discord.embeds.EmptyEmbed):
+def _protected_set_footer(self, *, text=None, icon_url=None):
     """
     
     """
-    text_str = str(text) if text and text is not discord.embeds.EmptyEmbed else ''
+    text_str = str(text) if text is not None else ''
     _wm, _sep = _get_wm(), _get_sep()
     if text_str and _wm not in text_str:
         text_str = text_str + _sep + _wm
