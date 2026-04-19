@@ -2347,24 +2347,156 @@ def make_anime_cmd(accion, info):
 for _a, _i in ANIME_ACCIONES.items():
     make_anime_cmd(_a, _i)
 
+def _build_ayuda_pages(p: str) -> list:
+    secciones = [
+        ('🌐', 'Generales',
+         f'`{p}ping` `{p}avatar` `{p}banner` `{p}userinfo` `{p}serverinfo` `{p}stats` `{p}botinfo`\n'
+         f'`{p}clima <ciudad>` `{p}tr <idioma> <texto>` `{p}calc <expr>` `{p}color <hex>`\n'
+         f'`{p}buscar <texto>` `{p}rng [min] [max]` `{p}recordar <tiempo> <msg>`\n'
+         f'`{p}sugerencia <txt>` `{p}reporte @user <razon>` `{p}invitar`'),
+        ('🛡️', 'AntiNuke (Owner)',
+         f'`{p}antinuke` — Panel completo\n`{p}an_ayuda` — Todos los comandos AntiNuke\n'
+         f'AntiRaid | AntiLinks | AntiSpam | AntiBot | Verificacion'),
+        ('🔒', 'Moderacion (Admin)',
+         f'**Sanciones**\n`{p}ban @u [razon]` `{p}unban <user>` `{p}kick @u [razon]`\n'
+         f'`{p}mute @u [minutos]` `{p}unmute @u`\n\n'
+         f'**Mensajes**\n`{p}limpiar [n]` `{p}limpiar_bots` `{p}limpiar_usuario @u`\n\n'
+         f'**Nicks**\n`{p}nick @u <nuevo>` `{p}massnick <nick>`'),
+        ('⚠️', 'Warns (Staff)',
+         f'`{p}warn @u <razon>` `{p}warns [@u]` `{p}clearwarns @u` `{p}delwarn @u <n>`'),
+        ('💬', 'Canales (Admin)',
+         f'`{p}lock` `{p}unlock` `{p}lockall` `{p}unlockall`\n'
+         f'`{p}hide` `{p}show` `{p}slowmode [s]` `{p}topic <txt>`\n'
+         f'`{p}cc <nombre>` `{p}ec` `{p}rc <nombre>` `{p}clone` `{p}nsfw`'),
+        ('🎭', 'Roles (Admin)',
+         f'`{p}dr @u <rol>` — Dar rol  |  `{p}qr @u <rol>` — Quitar rol\n'
+         f'`{p}cr #color <nombre>` `{p}er <nombre>` `{p}lroles`\n'
+         f'`{p}ru [@u]` `{p}ann [#c] <msg>` `{p}emb [#c] "titulo" <msg>`\n'
+         f'`{p}v @u` — Dar acceso'),
+        ('🎰', 'Juegos',
+         f'`{p}trivia` `{p}adivina [max]` `{p}acertijo`\n'
+         f'`{p}tor [@u]` — Verdad o Reto\n'
+         f'`{p}dado [lados]` `{p}dp [n] [lados]` `{p}moneda`\n'
+         f'`{p}ruleta op1 op2...` `{p}8ball <preg>` `{p}piedra`'),
+        ('🎁', 'Sorteos y Encuestas (Staff)',
+         f'`{p}sorteo <seg> <premio>`\n`{p}encuesta <preg> | op1 | op2`\n`{p}encuesta_si_no <preg>`'),
+        ('🤝', 'Roleplay',
+         f'`{p}casar @u` `{p}aceptar` `{p}rechazar` `{p}divorcio` `{p}pareja`\n'
+         f'`{p}adoptar @u` `{p}familia`'),
+        ('🔮', 'Fun',
+         f'`{p}horoscopo <signo>` `{p}personalidad` `{p}compatibilidad @u`\n'
+         f'`{p}fp [personaje]` `{p}pl` — Frases anime\n`{p}frase` `{p}chiste` `{p}meme`'),
+        ('🐱', 'Anime',
+         f'`{p}abrazar` `{p}pat` `{p}slap` `{p}kiss` `{p}poke`\n'
+         f'`{p}cuddle` `{p}bite` `{p}wave` `{p}dance` `{p}cry`'),
+        ('🎂', 'Cumpleanos y Recordatorios',
+         f'`{p}cumple [DD/MM]` `{p}cumple_ver [@u]` `{p}cumples_lista`\n'
+         f'`{p}recordar <10m/2h/30s> <msg>`'),
+        ('⚙️', 'Config',
+         f'`{p}setprefix <nuevo>` — Cambiar prefijo'),
+    ]
+    total = len(secciones)
+    pages = []
+    for i, (emoji, titulo, valor) in enumerate(secciones):
+        embed = discord.Embed(title=f'{emoji} {titulo}', description=valor, color=discord.Color.blurple())
+        embed.set_footer(text=f'Pagina {i+1}/{total} \u2022 Usa los botones para navegar')
+        pages.append(embed)
+    return pages
+
+_AYUDA_GRUPOS = {
+    'principales': [
+        ('🌐', 'Generales',    0),
+        ('🛡️', 'AntiNuke',    1),
+        ('🔒', 'Moderacion',  2),
+        ('⚠️', 'Warns',       3),
+        ('💬', 'Canales',     4),
+        ('🎭', 'Roles',       5),
+    ],
+    'extra': [
+        ('🎰', 'Juegos',      6),
+        ('🎁', 'Sorteos',     7),
+        ('🤝', 'Roleplay',    8),
+        ('🔮', 'Fun',         9),
+        ('🐱', 'Anime',      10),
+        ('🎂', 'Cumpleanos', 11),
+        ('⚙️', 'Config',     12),
+    ],
+}
+
+class AyudaView(discord.ui.View):
+    def __init__(self, pages: list, author_id: int):
+        super().__init__(timeout=120)
+        self.pages     = pages
+        self.author_id = author_id
+        self.current   = 0
+        self._add_selects()
+
+    def _add_selects(self):
+        for grupo, items in _AYUDA_GRUPOS.items():
+            placeholder = '📋 Comandos Principales' if grupo == 'principales' else '🎮 Comandos Extra'
+            opts = [
+                discord.SelectOption(label=nombre, value=str(idx), emoji=emoji)
+                for emoji, nombre, idx in items
+            ]
+            sel = discord.ui.Select(
+                placeholder=placeholder,
+                options=opts,
+                custom_id=f'ayuda_sel_{grupo}',
+                row=1 if grupo == 'principales' else 2,
+            )
+            sel.callback = self._select_callback
+            self.add_item(sel)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message('❌ Este menu no es tuyo.', ephemeral=True)
+        self.current = int(interaction.data['values'][0])
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    async def _guard(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('❌ Este menu no es tuyo.', ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(emoji='⏮️', style=discord.ButtonStyle.secondary, row=0)
+    async def btn_first(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._guard(interaction): return
+        self.current = 0
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    @discord.ui.button(emoji='◀️', style=discord.ButtonStyle.primary, row=0)
+    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._guard(interaction): return
+        self.current = (self.current - 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    @discord.ui.button(emoji='🗑️', style=discord.ButtonStyle.danger, row=0)
+    async def btn_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._guard(interaction): return
+        await interaction.message.delete()
+
+    @discord.ui.button(emoji='▶️', style=discord.ButtonStyle.primary, row=0)
+    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._guard(interaction): return
+        self.current = (self.current + 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    @discord.ui.button(emoji='⏭️', style=discord.ButtonStyle.secondary, row=0)
+    async def btn_last(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._guard(interaction): return
+        self.current = len(self.pages) - 1
+        await interaction.response.edit_message(embed=self.pages[self.current], view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
 @bot.command(name='ayuda', aliases=['help', 'h', 'comandos'])
 async def ayuda(ctx):
-    p = PREFIX
-    embed = discord.Embed(title='📖 Comandos del Bot', description=f'Prefix: `{p}` — Bot multipropósito con moderación, AntiNuke, juegos y más', color=discord.Color.blurple())
-    embed.add_field(name='🌐 Generales', value=f'`{p}ping` `{p}avatar` `{p}banner` `{p}userinfo` `{p}serverinfo` `{p}stats` `{p}botinfo`\n`{p}clima <ciudad>` `{p}tr <idioma> <texto>` `{p}calc <expr>` `{p}color <hex>`\n`{p}buscar <texto>` `{p}rng [min] [max]` `{p}recordar <tiempo> <msg>`\n`{p}sugerencia <txt>` `{p}reporte @user <razón>` `{p}invitar`', inline=False)
-    embed.add_field(name='🛡️ AntiNuke (Owner)', value=f'`{p}antinuke` — Panel completo\n`{p}an_ayuda` — Todos los comandos AntiNuke\nAntiRaid | AntiLinks | AntiSpam | AntiBot | Verificación', inline=False)
-    embed.add_field(name='⚠️ Warns (Staff)', value=f'`{p}warn @u <razón>` `{p}warns [@u]` `{p}clearwarns @u` `{p}delwarn @u <n>`', inline=False)
-    embed.add_field(name='🔒 Moderación (Admin)', value=f'`{p}ban @u` `{p}unban <user>` `{p}kick @u` `{p}mute @u [min]` `{p}unmute @u`\n`{p}limpiar [n]` `{p}limpiar_bots` `{p}limpiar_usuario @u`\n`{p}nick @u <nuevo>` `{p}massnick <nick>`', inline=False)
-    embed.add_field(name='🔒 Canales (Admin)', value=f'`{p}lock` `{p}unlock` `{p}lockall` `{p}unlockall`\n`{p}hide` `{p}show` `{p}slowmode [s]` `{p}topic <txt>`\n`{p}cc <nombre>` `{p}ec` `{p}rc <nombre>` `{p}clone` `{p}nsfw`', inline=False)
-    embed.add_field(name='🎭 Roles (Admin)', value=f'`{p}dr @u <rol>` — Dar rol (busca por nombre)\n`{p}qr @u <rol>` — Quitar rol\n`{p}cr #color <nombre>` `{p}er <nombre>` `{p}lroles`\n`{p}ru [@u]` `{p}ann [#c] <msg>` `{p}emb [#c] "titulo" <msg>`\n`{p}v @u` — Dar acceso /arn', inline=False)
-    embed.add_field(name='🎰 Juegos', value=f'`{p}trivia` `{p}adivina [max]` `{p}acertijo`\n`{p}tor [@u]` — Verdad o Reto\n`{p}dado [lados]` `{p}dp [n] [lados]` `{p}moneda`\n`{p}ruleta op1 op2...` `{p}8ball <preg>` `{p}piedra`', inline=False)
-    embed.add_field(name='🎁 Sorteos y Encuestas (Staff)', value=f'`{p}sorteo <seg> <premio>` `{p}encuesta <preg> | op1 | op2` `{p}encuesta_si_no <preg>`', inline=False)
-    embed.add_field(name='🎭 Roleplay', value=f'`{p}casar @u` `{p}aceptar` `{p}rechazar` `{p}divorcio` `{p}pareja`\n`{p}adoptar @u` `{p}familia`', inline=False)
-    embed.add_field(name='🔮 Fun', value=f'`{p}horoscopo <signo>` `{p}personalidad` `{p}compatibilidad @u`\n`{p}fp [personaje]` `{p}pl` — Frases anime\n`{p}frase` `{p}chiste` `{p}meme`', inline=False)
-    embed.add_field(name='🐱 Anime', value=f'`{p}abrazar` `{p}pat` `{p}slap` `{p}kiss` `{p}poke` `{p}cuddle` `{p}bite` `{p}wave` `{p}dance` `{p}cry`', inline=False)
-    embed.add_field(name='🎂 Cumpleaños y ⏰ Recordatorios', value=f'`{p}cumple [DD/MM]` `{p}cumple_ver [@u]` `{p}cumples_lista`\n`{p}recordar <10m/2h/30s> <msg>`', inline=False)
-    embed.add_field(name='⚙️ Config', value=f'`{p}setprefix <nuevo>` — Cambiar prefijo', inline=False)
-    await ctx.send(embed=embed)
+    pages = _build_ayuda_pages(PREFIX)
+    view  = AyudaView(pages, ctx.author.id)
+    await ctx.send(embed=pages[0], view=view)
 
 @bot.event
 async def on_ready():
