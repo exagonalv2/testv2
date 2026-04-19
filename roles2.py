@@ -34,13 +34,6 @@ WATERMARK     = _get_wm()    # mantener por compatibilidad; no usar en lógica
 WATERMARK_SEP = _get_sep()   # ídem
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _is_valid_icon_url(url) -> bool:
-    """Devuelve True solo si url es un string HTTP/HTTPS válido."""
-    if not url or url is discord.embeds.EmptyEmbed:
-        return False
-    s = str(url)
-    return s.startswith('http://') or s.startswith('https://')
-
 def _enforce_watermark(embed: discord.Embed) -> discord.Embed:
     """
      
@@ -49,15 +42,12 @@ def _enforce_watermark(embed: discord.Embed) -> discord.Embed:
         embed._fields = [f for f in embed._fields if str(f.get('value', '')).strip() and str(f.get('name', '')).strip()]
     footer = embed.footer
     current_text = footer.text if footer and footer.text else ''
-    current_icon = footer.icon_url if (footer and _is_valid_icon_url(footer.icon_url)) else None
+    current_icon = footer.icon_url if footer and footer.icon_url else discord.embeds.EmptyEmbed
     _wm, _sep = _get_wm(), _get_sep()
     if not current_text:
         discord.Embed.set_footer(embed, text=_wm)
     elif _wm not in current_text:
-        if current_icon:
-            discord.Embed.set_footer(embed, text=current_text + _sep + _wm, icon_url=current_icon)
-        else:
-            discord.Embed.set_footer(embed, text=current_text + _sep + _wm)
+        discord.Embed.set_footer(embed, text=current_text + _sep + _wm)
     return embed
 _original_set_footer = discord.Embed.set_footer
 
@@ -71,8 +61,6 @@ def _protected_set_footer(self, *, text=discord.embeds.EmptyEmbed, icon_url=disc
         text_str = text_str + _sep + _wm
     elif not text_str:
         text_str = _wm
-    if _is_valid_icon_url(icon_url):
-        return _original_set_footer(self, text=text_str, icon_url=icon_url)
     return _original_set_footer(self, text=text_str)
 discord.Embed.set_footer = _protected_set_footer
 _original_send = discord.abc.Messageable.send
