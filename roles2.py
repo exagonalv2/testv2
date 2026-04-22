@@ -15,74 +15,23 @@ from collections import defaultdict
 import functools
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s » %(message)s', datefmt='%Y-%m-%d %H:%M:%S', handlers=[logging.StreamHandler(), logging.FileHandler('bot.log', encoding='utf-8')])
 log = logging.getLogger('bot')
+# ── Marca personalizada desactivada ─────────────────────────────────────────────
+# Se deja el embed/footer tal como lo envíe el código del bot.
+def _get_wm() -> str:
+    return ""
 
-# ─────────────────────────────────────────────────────────────────────────────
+def _get_sep() -> str:
+    return " | "
+
+WATERMARK = ""
+WATERMARK_SEP = _get_sep()
 
 def _enforce_watermark(embed: discord.Embed) -> discord.Embed:
-    """
-     
-    """
-    if hasattr(embed, '_fields') and embed._fields:
-        embed._fields = [f for f in embed._fields if str(f.get('value', '')).strip() and str(f.get('name', '')).strip()]
-    footer = embed.footer
-    current_text = footer.text if footer and footer.text else ''
-    current_icon = footer.icon_url if footer and footer.icon_url else None
-    _wm, _sep = _get_wm(), _get_sep()
-    if not current_text:
-        discord.Embed.set_footer(embed, text=_wm)
-    elif _wm not in current_text:
-        discord.Embed.set_footer(embed, text=current_text + _sep + _wm)
     return embed
-_original_set_footer = discord.Embed.set_footer
 
-def _protected_set_footer(self, *, text=None, icon_url=None):
-    """
-    
-    """
-    text_str = str(text) if text is not None else ''
-    _wm, _sep = _get_wm(), _get_sep()
-    if text_str and _wm not in text_str:
-        text_str = text_str + _sep + _wm
-    elif not text_str:
-        text_str = _wm
-    return _original_set_footer(self, text=text_str)
-discord.Embed.set_footer = _protected_set_footer
-_original_send = discord.abc.Messageable.send
+# No se parchea discord.Embed.set_footer ni send/edit/webhook.
+# ────────────────────────────────────────────────────────────────────────────────
 
-@functools.wraps(_original_send)
-async def _patched_send(self, content=None, **kwargs):
-    embed = kwargs.get('embed')
-    embeds = kwargs.get('embeds', [])
-    if embed is not None:
-        kwargs['embed'] = _enforce_watermark(embed)
-    if embeds:
-        kwargs['embeds'] = [_enforce_watermark(e) for e in embeds]
-    return await _original_send(self, content=content, **kwargs)
-discord.abc.Messageable.send = _patched_send
-_original_msg_edit = discord.Message.edit
-
-@functools.wraps(_original_msg_edit)
-async def _patched_msg_edit(self, **kwargs):
-    embed = kwargs.get('embed')
-    embeds = kwargs.get('embeds', [])
-    if embed is not None:
-        kwargs['embed'] = _enforce_watermark(embed)
-    if embeds:
-        kwargs['embeds'] = [_enforce_watermark(e) for e in embeds]
-    return await _original_msg_edit(self, **kwargs)
-discord.Message.edit = _patched_msg_edit
-_original_webhook_send = discord.Webhook.send
-
-@functools.wraps(_original_webhook_send)
-async def _patched_webhook_send(self, content=None, **kwargs):
-    embed = kwargs.get('embed')
-    embeds = kwargs.get('embeds', [])
-    if embed is not None:
-        kwargs['embed'] = _enforce_watermark(embed)
-    if embeds:
-        kwargs['embeds'] = [_enforce_watermark(e) for e in embeds]
-    return await _original_webhook_send(self, content=content, **kwargs)
-discord.Webhook.send = _patched_webhook_send
 CONFIG_FILE = 'config.json'
 
 def cargar_config() -> dict:
@@ -1823,6 +1772,15 @@ async def ping(ctx):
     color = discord.Color.green() if lat < 100 else discord.Color.yellow() if lat < 200 else discord.Color.red()
     await ctx.send(embed=discord.Embed(title='🏓 Pong!', description=f'**{lat}ms**', color=color))
 
+@bot.command(name='say')
+@commands.check(es_admin)
+async def say(ctx, *, mensaje: str):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+    await ctx.send(mensaje, allowed_mentions=discord.AllowedMentions.all())
+
 @bot.command(name='avatar', aliases=['av', 'foto'])
 async def avatar(ctx, member: discord.Member=None):
     member = member or ctx.author
@@ -2504,6 +2462,13 @@ async def slash_ping(i: discord.Interaction):
     lat = round(bot.latency * 1000)
     color = discord.Color.green() if lat < 100 else discord.Color.yellow() if lat < 200 else discord.Color.red()
     await i.response.send_message(embed=discord.Embed(title='🏓 Pong!', description=f'**{lat}ms**', color=color))
+
+@bot.tree.command(name='say', description='Envía un mensaje como el bot')
+@app_commands.describe(mensaje='Mensaje a enviar')
+async def slash_say(i: discord.Interaction, mensaje: str):
+    if not i.user.guild_permissions.administrator:
+        return await _no_perm(i)
+    await i.response.send_message(mensaje, allowed_mentions=discord.AllowedMentions.all())
 
 @bot.tree.command(name='avatar', description='Muestra el avatar de un usuario')
 @app_commands.describe(usuario='Usuario objetivo (opcional)')
@@ -3404,8 +3369,6 @@ async def slash_setprefix(i: discord.Interaction, nuevo_prefijo: str):
 async def on_ready():
     log.info(f'Bot conectado: {bot.user} (ID: {bot.user.id})')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f'{PREFIX}ayuda | AntiNuke'))
-    if not watermark_guardian.is_running():
-        watermark_guardian.start()
     try:
         synced = await bot.tree.sync()
         log.info(f'Slash commands sincronizados: {len(synced)} comandos')
